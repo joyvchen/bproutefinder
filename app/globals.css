@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Mapbox GL overrides */
+.mapboxgl-popup-content {
+  padding: 0 !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15) !important;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.mapboxgl-popup-close-button {
+  top: 6px !important;
+  right: 8px !important;
+  color: #fff !important;
+  font-size: 18px !important;
+  background: rgba(0,0,0,0.3) !important;
+  border-radius: 50% !important;
+  width: 22px !important;
+  height: 22px !important;
+  line-height: 20px !important;
+  text-align: center !important;
+}
+
+.mapboxgl-ctrl-bottom-left {
+  bottom: 0;
+}
+
+/* Hide Mapbox logo area on small screens */
+@media (max-width: 640px) {
+  .mapboxgl-ctrl-logo { display: none !important; }
+}
+
+/* Smooth scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+*::-webkit-scrollbar { width: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
