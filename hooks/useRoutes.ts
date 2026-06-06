@@ -47,7 +47,7 @@ export function useRoutes(filters: FilterState) {
 
 export async function fetchAllRoutesForMap(filters: FilterState): Promise<Route[]> {
   const params = new URLSearchParams(filtersToParams(filters))
-  params.set('limit', '500')
+  params.set('limit', '1000')
   params.set('offset', '0')
   const res = await fetch(`/api/routes?${params.toString()}`)
   if (!res.ok) return []

@@ -66,7 +66,11 @@ export default function RouteDetail({ route }: { route: Route }) {
               {route.name}
             </h1>
             {route.is_top_pick && (
-              <BadgeTopPick score={route.recommendation_score} size="md" />
+              <BadgeTopPick
+                label={route.editorial_label}
+                href={route.editorial_source_url}
+                size="md"
+              />
             )}
           </div>
 
@@ -94,6 +98,34 @@ export default function RouteDetail({ route }: { route: Route }) {
               <p className="text-gray-700 leading-relaxed text-base">{route.description}</p>
               <p className="text-xs text-gray-400 mt-2 italic">
                 Excerpt from Bikepacking.com — see the full route page for complete details.
+              </p>
+            </div>
+          )}
+
+          {/* RWGPS route map embed */}
+          {route.rwgps_embed_url && (
+            <div className="mb-8">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Route Map</h2>
+              <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
+                <iframe
+                  src={route.rwgps_embed_url}
+                  className="w-full"
+                  style={{ height: '400px', border: 'none' }}
+                  allowFullScreen
+                  loading="lazy"
+                  title={`${route.name} route map`}
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">
+                Interactive route map via{' '}
+                <a
+                  href={`https://ridewithgps.com/routes/${route.rwgps_route_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-gray-600"
+                >
+                  Ride with GPS
+                </a>
               </p>
             </div>
           )}

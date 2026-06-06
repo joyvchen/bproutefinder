@@ -15,13 +15,18 @@ export function routesToGeoJSON(routes: Route[]): RouteGeoJSON {
           id: r.id,
           slug: r.slug,
           name: r.name,
+          source_url: r.source_url,
           state: r.state,
+          country: r.country,
           distance_mi: r.distance_mi,
           days_min: r.days_min,
           days_max: r.days_max,
           difficulty: r.difficulty,
           is_top_pick: r.is_top_pick,
+          editorial_source_url: r.editorial_source_url,
+          editorial_label: r.editorial_label,
           image_url: r.image_url,
+          rwgps_route_id: r.rwgps_route_id,
         },
       })),
   }
@@ -54,10 +59,23 @@ export function formatPct(pct: number | null, label: string): string {
   return `${pct}% ${label}`
 }
 
+function mmToInch(mm: number): string {
+  const v = mm / 25.4
+  return (v % 1 === 0 ? v : parseFloat(v.toFixed(1))).toString()
+}
+
+const INCH_THRESHOLD = 47
+
 export function formatTireWidth(min: number | null, max: number | null): string {
-  if (!min && !max) return '—'
-  if (min && max && min !== max) return `${min}–${max}mm`
-  return `${min ?? max}mm`
+  if (min == null) return '—'
+  if (max == null || min === max) {
+    return min > INCH_THRESHOLD ? `${mmToInch(min)}"` : `${min}mm`
+  }
+  const minLarge = min > INCH_THRESHOLD
+  const maxLarge = max > INCH_THRESHOLD
+  if (!minLarge && maxLarge) return `${min}mm–${mmToInch(max)}"`
+  if (minLarge) return `${mmToInch(min)}"–${mmToInch(max)}"`
+  return `${min}–${max}mm`
 }
 
 export function formatBikeType(types: string[] | null): string {
@@ -72,5 +90,5 @@ function capitalize(s: string): string {
 export const MAP_DEFAULTS = {
   center: [-98.5795, 39.8283] as [number, number], // continental US center
   zoom: 4,
-  style: 'mapbox://styles/mapbox/outdoors-v12',
+  style: 'https://tiles.openfreemap.org/styles/liberty',
 }

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Parsing helpers for scraped text."""
 import re
 from typing import Optional
@@ -6,8 +7,8 @@ from typing import Optional
 def parse_distance(text: str) -> tuple[Optional[float], Optional[float]]:
     """Extract (miles, km) from strings like '247 MI (398 KM)' or '247 miles'."""
     mi, km = None, None
-    mi_match = re.search(r'([\d,]+(?:\.\d+)?)\s*mi(?:les?)?', text, re.IGNORECASE)
-    km_match = re.search(r'([\d,]+(?:\.\d+)?)\s*km', text, re.IGNORECASE)
+    mi_match = re.search(r'(\d[\d,]*(?:\.\d+)?)\s*mi(?:les?)?', text, re.IGNORECASE)
+    km_match = re.search(r'(\d[\d,]*(?:\.\d+)?)\s*km', text, re.IGNORECASE)
     if mi_match:
         mi = float(mi_match.group(1).replace(',', ''))
     if km_match:
@@ -27,15 +28,66 @@ def parse_days(text: str) -> tuple[Optional[int], Optional[int]]:
     return None, None
 
 
-def parse_elevation(text: str) -> tuple[Optional[int], Optional[int]]:
-    """Extract (ft, m) from strings like '24,000 ft (7,315 m)'."""
+def parse_days_value(text: str) -> tuple[Optional[int], Optional[int]]:
+    """Parse days from a bare stat block value like '4' or '5-8' (no 'days' keyword)."""
+    range_match = re.search(r'(\d+)\s*[-–]\s*(\d+)', text)
+    if range_match:
+        return int(range_match.group(1)), int(range_match.group(2))
+    single_match = re.search(r'(\d+)', text)
+    if single_match:
+        d = int(single_match.group(1))
+        if 1 <= d <= 365:
+            return d, d
+    return None, None
+
+
+def parse_elevation_value(text: str) -> tuple[Optional[int], Optional[int]]:
+    """Parse elevation from stat block values like \"16,390' (4,996 M)\" or '5,000 ft'."""
     ft, m = None, None
-    ft_match = re.search(r'([\d,]+)\s*ft', text, re.IGNORECASE)
-    m_match = re.search(r'([\d,]+)\s*m\b', text, re.IGNORECASE)
+    # Feet: "16,390'" (apostrophe/prime) or "16,390 ft"
+    ft_match = re.search(r"([\d,]+)['′′]", text) or re.search(r'([\d,]+)\s*ft', text, re.IGNORECASE)
     if ft_match:
         ft = int(ft_match.group(1).replace(',', ''))
+    # Meters: "(4,996 M)" parenthesized secondary value
+    m_match = re.search(r'\(\s*([\d,]+)\s*[Mm]\s*\)', text)
     if m_match:
         m = int(m_match.group(1).replace(',', ''))
+    return ft, m
+
+
+def parse_difficulty_value(text: str) -> Optional[float]:
+    """Parse difficulty from a bare stat value like '6?' or '7.5' or '6/10'."""
+    # "6/10" format
+    match = re.search(r'(\d+(?:\.\d+)?)\s*/\s*10', text)
+    if match:
+        return float(match.group(1))
+    # Bare number, possibly followed by '?' — extract first float in range 1-10
+    match = re.search(r'(\d+(?:\.\d+)?)', text)
+    if match:
+        val = float(match.group(1))
+        if 1 <= val <= 10:
+            return val
+    return None
+
+
+def parse_elevation(text: str) -> tuple[Optional[int], Optional[int]]:
+    """Extract (ft, m) from strings like '24,000 ft (7,315 m)' or 'Ascent: 24,000 ft'."""
+    ft, m = None, None
+    # Look for ft near an elevation/ascent label first, then fall back to bare number
+    labeled_ft = re.search(r'(?:ascent|elevation)[^\d]{0,30}([\d,]+)\s*ft', text, re.IGNORECASE)
+    bare_ft = re.search(r'([\d,]+)\s*ft', text, re.IGNORECASE)
+    ft_match = labeled_ft or bare_ft
+    if ft_match:
+        ft = int(ft_match.group(1).replace(',', ''))
+
+    # For meters: only match inside parens like "(7,315 m)" or after labeled field
+    # to avoid matching "500m trail" or "3 months"
+    labeled_m = re.search(r'(?:ascent|elevation)[^\d]{0,30}([\d,]+)\s*m\b', text, re.IGNORECASE)
+    paren_m = re.search(r'\(\s*([\d,]+)\s*m\s*\)', text, re.IGNORECASE)
+    m_match = labeled_m or paren_m
+    if m_match:
+        m = int(m_match.group(1).replace(',', ''))
+
     return ft, m
 
 
@@ -70,41 +122,134 @@ def parse_pct(text: str) -> Optional[int]:
 def parse_tire_width(text: str) -> tuple[Optional[int], Optional[int]]:
     """
     Extract (min_mm, max_mm) from tire width strings in editorial body text.
-    Handles: '700x40-55c', '2.2-2.4"', '40-55mm', '2.35"', '700x50c'
+    Handles: 700x40-55c, 2.2-2.4", 40-55mm, 2.35", 700x50c,
+             X to Y inches, at least 45mm up to 2.2"
     Returns widths in mm (approximate conversion for inch sizes).
     """
-    # 700xNNc or 700xNN-NNc format (road/gravel)
+    # Match ASCII quotes, Unicode double prime (U+2033), prime (U+2032), and curly quotes
+    inch_quote = '["\'\\u2032\\u2033\\u201c\\u201d]'
+
+    # 1. 700xNNc or 700xNN-NNc format (road/gravel)
     match = re.search(r'700\s*[xX×]\s*(\d+)(?:-(\d+))?c?', text)
     if match:
         lo = int(match.group(1))
         hi = int(match.group(2)) if match.group(2) else lo
         return lo, hi
 
-    # NNmm or NN-NNmm
+    # 2. NNmm range with dash: 40-55mm
     match = re.search(r'(\d+)\s*[-–]\s*(\d+)\s*mm', text, re.IGNORECASE)
     if match:
         return int(match.group(1)), int(match.group(2))
-    match = re.search(r'(\d+)\s*mm', text, re.IGNORECASE)
-    if match:
-        return int(match.group(1)), int(match.group(1))
 
-    # Inch sizes (MTB): 2.2-2.4" → approximate mm (multiply by 25.4)
-    match = re.search(r'(\d+\.\d+)\s*[-–]\s*(\d+\.\d+)\s*["\']', text)
+    # 2b. Road/gravel "N/Mc" or "Nc" tire notation (700c width, prefix omitted)
+    # "45/50c" → (45, 50), "32c" → (32, 32)
+    # Guard: 25–80mm to exclude wheel diameters (26", 27", 29", 700c)
+    match = re.search(r'(\d+)\s*/\s*(\d+)\s*c\b', text, re.IGNORECASE)
+    if match:
+        lo, hi = int(match.group(1)), int(match.group(2))
+        if 25 <= lo <= 80 and 25 <= hi <= 80:
+            return lo, hi
+    match = re.search(r'\b(\d+)\s*c\b', text, re.IGNORECASE)
+    if match:
+        val = int(match.group(1))
+        if 25 <= val <= 80:
+            return val, val
+
+    # 3. "X to Y inches" / "X to Y inch" prose
+    match = re.search(
+        r'(\d+(?:\.\d+)?)\s*(?:to|–|-)\s*(\d+(?:\.\d+)?)\s*inch(?:es)?',
+        text, re.IGNORECASE,
+    )
     if match:
         lo = round(float(match.group(1)) * 25.4)
         hi = round(float(match.group(2)) * 25.4)
         return lo, hi
-    match = re.search(r'(\d+\.\d+)\s*["\']', text)
+
+    # 4. Prose inch range: "at least 2.4" ... up to 3.0"" or "2.4" to 3.0""
+    match = re.search(
+        r'(?:at\s+least\s+)?(\d+\.\d+)\s*' + inch_quote + r'.{0,60}?(?:up\s+to|or\s+up\s+to|to)\s*(?:a\s+)?(\d+\.\d+)\s*' + inch_quote,
+        text, re.IGNORECASE,
+    )
     if match:
-        w = round(float(match.group(1)) * 25.4)
-        return w, w
+        lo = round(float(match.group(1)) * 25.4)
+        hi = round(float(match.group(2)) * 25.4)
+        return lo, hi
+
+    # 4b. "N.N" or larger (M.M" is ideal)" — lower bound + ideal size in parens
+    # Must come before 3b so "(M.M" ideal)" is captured as the max, not discarded
+    match = re.search(
+        r'(\d+\.\d+)\s*' + inch_quote + r'.{0,60}?\(\s*(\d+\.\d+)\s*' + inch_quote,
+        text, re.IGNORECASE,
+    )
+    if match:
+        lo = round(float(match.group(1)) * 25.4)
+        hi = round(float(match.group(2)) * 25.4)
+        return lo, hi
+
+    # 3b. Minimum-size expression: "2.1 or larger tires", "2.4+ tires", "3" or bigger"
+    match = re.search(
+        r'(\d+(?:\.\d+)?)\s*(?:inch(?:es?)?|' + inch_quote + r')?\s*(?:\+|or\s+(?:larger|bigger|more|wider))\s*(?:tires?|tyres?|inch(?:es?)?)?',
+        text, re.IGNORECASE,
+    )
+    if match:
+        val = float(match.group(1))
+        if 1.0 <= val <= 5.0:
+            w = round(val * 25.4)
+            return w, w
+
+    # 5. Cross-unit prose: "at least 45mm ... up to 2.2"" or "45mm to 2.2""
+    match = re.search(
+        r'(?:at\s+least\s+)?(\d+)\s*mm.{0,60}?(?:up\s+to|or\s+up\s+to|to)\s*(?:a\s+)?(\d+\.\d+)\s*' + inch_quote,
+        text, re.IGNORECASE,
+    )
+    if match:
+        lo = int(match.group(1))
+        hi = round(float(match.group(2)) * 25.4)
+        return lo, hi
+
+    # 6. Standard inch range with dash: 2.2-2.4"
+    match = re.search(r'(\d+\.\d+)\s*[-–]\s*(\d+\.\d+)\s*' + inch_quote, text)
+    if match:
+        lo = round(float(match.group(1)) * 25.4)
+        hi = round(float(match.group(2)) * 25.4)
+        return lo, hi
+
+    # 7. Single mm value: 45mm
+    match = re.search(r'(\d+)\s*mm', text, re.IGNORECASE)
+    if match:
+        return int(match.group(1)), int(match.group(1))
+
+    # 8a. Integer inch range: ~2-3" or 2-3" (guard: 1–5" plausible tire range)
+    match = re.search(r'~?(\d+)(?!\.\d)\s*[-–]\s*(\d+)(?!\.\d)\s*' + inch_quote, text)
+    if match:
+        lo_in, hi_in = int(match.group(1)), int(match.group(2))
+        if 1 <= lo_in <= 5 and 1 <= hi_in <= 5:
+            return round(lo_in * 25.4), round(hi_in * 25.4)
+
+    # 8b. Single inch value (integer or decimal): ~2", 2.35", etc.
+    # Guard: 1–5" to avoid false matches on wheel diameters (20", 26", 29") or years
+    match = re.search(r'(?:~|approximately\s+|approx\.?\s+|about\s+)?(\d+(?:\.\d+)?)\s*' + inch_quote, text)
+    if match:
+        val = float(match.group(1))
+        if 1.0 <= val <= 5.0:
+            w = round(val * 25.4)
+            return w, w
+
+    # 9. Informal plural-s format used in MTB community: "2.4s", "ride 2.3s"
+    # Matches decimal number immediately followed by 's' (no space) in 1-5" range
+    match = re.search(r'(\d+\.\d+)s\b', text, re.IGNORECASE)
+    if match:
+        val = float(match.group(1))
+        if 1.0 <= val <= 5.0:
+            w = round(val * 25.4)
+            return w, w
 
     return None, None
 
 
 BIKE_TYPE_KEYWORDS = {
-    'gravel': ['gravel bike', 'gravel bicycle', 'gravel-specific'],
-    'hardtail': ['hardtail', 'hard tail', 'xc bike', 'cross-country'],
+    'gravel': ['gravel bike', 'gravel bicycle', 'gravel-specific', '700c', 'gravel grinder'],
+    'hardtail': ['hardtail', 'hard tail', 'xc bike', 'cross-country', '29er', 'rigid 29', '29" wheel'],
     'full-sus': [
         'full suspension', 'full-suspension', 'full sus', 'enduro bike',
         'trail bike', 'all-mountain',
@@ -123,6 +268,77 @@ def extract_bike_types(text: str) -> list[str]:
         if any(kw in text_lower for kw in keywords):
             found.append(bike_type)
     return found
+
+
+MONTH_NAMES: dict[str, int] = {
+    'january': 1, 'jan': 1, 'february': 2, 'feb': 2, 'march': 3, 'mar': 3,
+    'april': 4, 'apr': 4, 'may': 5, 'june': 6, 'jun': 6,
+    'july': 7, 'jul': 7, 'august': 8, 'aug': 8, 'september': 9, 'sep': 9, 'sept': 9,
+    'october': 10, 'oct': 10, 'november': 11, 'nov': 11, 'december': 12, 'dec': 12,
+}
+
+SEASON_MONTHS: dict[str, list[int]] = {
+    'spring': [3, 4, 5],
+    'summer': [6, 7, 8],
+    'fall': [9, 10, 11],
+    'autumn': [9, 10, 11],
+    'winter': [12, 1, 2],
+}
+
+
+def parse_best_season_months(text: str) -> list[int]:
+    """
+    Convert a best_season string to a sorted list of month numbers (1-12).
+    Handles: 'June through September', 'Late summer to early fall',
+             'July-August', 'Spring and summer', 'Year-round', etc.
+    """
+    if not text:
+        return []
+    text_lower = text.lower()
+
+    if re.search(r'year.?round|all year|any time|anytime', text_lower):
+        return list(range(1, 13))
+
+    months: set[int] = set()
+
+    # First extract named months
+    found_months = [m for name, m in MONTH_NAMES.items() if re.search(r'\b' + name + r'\b', text_lower)]
+
+    if found_months:
+        # Only fill the range between months when they're explicitly connected with
+        # "through / to / – / -" (e.g. "June through September").
+        # When months are comma-listed ("March, April, October, November"), just use those months.
+        month_alt = '|'.join(MONTH_NAMES.keys())
+        range_signal = re.search(
+            r'(?:' + month_alt + r').{0,15}(?:through|thru|\bto\b|[-–]).{0,15}(?:' + month_alt + r')',
+            text_lower,
+        )
+        if range_signal and len(found_months) >= 2:
+            start, end = min(found_months), max(found_months)
+            for m in range(start, end + 1):
+                months.add(m)
+        else:
+            months.update(found_months)
+    else:
+        # Fall back to season names — only check the FIRST sentence that mentions a season.
+        # Later sentences often mention bad seasons in a negative context ("Winter brings snow..."),
+        # and we don't want those to corrupt the recommendation.
+        ordered = ['winter', 'spring', 'summer', 'fall', 'autumn']
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        for sent in sentences:
+            s_lower = sent.lower()
+            found_seasons = [s for s in ordered if re.search(r'\b' + s + r'\b', s_lower)]
+            if not found_seasons:
+                continue
+            if len(found_seasons) == 1:
+                months.update(SEASON_MONTHS[found_seasons[0]])
+            else:
+                all_months = [m for s in found_seasons for m in SEASON_MONTHS[s]]
+                for m in range(min(all_months), max(all_months) + 1):
+                    months.add(m)
+            break  # stop after first sentence that has season names
+
+    return sorted(months)
 
 
 def slugify(url: str) -> str:
