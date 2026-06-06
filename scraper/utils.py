@@ -214,10 +214,12 @@ def parse_tire_width(text: str) -> tuple[Optional[int], Optional[int]]:
         hi = round(float(match.group(2)) * 25.4)
         return lo, hi
 
-    # 7. Single mm value: 45mm
+    # 7. Single mm value: 45mm (guard: >= 25mm to exclude stray small numbers like "3mm gap")
     match = re.search(r'(\d+)\s*mm', text, re.IGNORECASE)
     if match:
-        return int(match.group(1)), int(match.group(1))
+        val = int(match.group(1))
+        if val >= 25:
+            return val, val
 
     # 8a. Integer inch range: ~2-3" or 2-3" (guard: 1–5" plausible tire range)
     match = re.search(r'~?(\d+)(?!\.\d)\s*[-–]\s*(\d+)(?!\.\d)\s*' + inch_quote, text)
@@ -238,6 +240,14 @@ def parse_tire_width(text: str) -> tuple[Optional[int], Optional[int]]:
     # 9. Informal plural-s format used in MTB community: "2.4s", "ride 2.3s"
     # Matches decimal number immediately followed by 's' (no space) in 1-5" range
     match = re.search(r'(\d+\.\d+)s\b', text, re.IGNORECASE)
+    if match:
+        val = float(match.group(1))
+        if 1.0 <= val <= 5.0:
+            w = round(val * 25.4)
+            return w, w
+
+    # 10. Compact "Nin" notation: "2.3in", "2.4in tyres" (no space between number and "in")
+    match = re.search(r'(\d+(?:\.\d+)?)in\b', text, re.IGNORECASE)
     if match:
         val = float(match.group(1))
         if 1.0 <= val <= 5.0:
@@ -306,17 +316,42 @@ def parse_best_season_months(text: str) -> list[int]:
 
     if found_months:
         # Only fill the range between months when they're explicitly connected with
-        # "through / to / – / -" (e.g. "June through September").
+        # "through / to / – / -" or "between X and Y" (e.g. "June through September").
         # When months are comma-listed ("March, April, October, November"), just use those months.
         month_alt = '|'.join(MONTH_NAMES.keys())
         range_signal = re.search(
-            r'(?:' + month_alt + r').{0,15}(?:through|thru|\bto\b|[-–]).{0,15}(?:' + month_alt + r')',
+            r'(?:' + month_alt + r').{0,15}(?:through|thru|\bto\b|[-–]).{0,15}(?:' + month_alt + r')'
+            r'|between\s+(?:\w+\s+){0,3}(?:' + month_alt + r').{0,20}(?:and|to).{0,15}(?:' + month_alt + r')',
             text_lower,
         )
         if range_signal and len(found_months) >= 2:
-            start, end = min(found_months), max(found_months)
-            for m in range(start, end + 1):
-                months.add(m)
+            # Use only the two months inside the matched range expression — not all months
+            # in the full text. This prevents "December–March. November or April are possible"
+            # from incorrectly expanding to include November and April.
+            range_text = range_signal.group(0)
+            range_month_positions: dict[int, int] = {}
+            for name, m in MONTH_NAMES.items():
+                if m not in range_month_positions:
+                    idx = range_text.find(name)
+                    if idx >= 0:
+                        range_month_positions[m] = idx
+            if len(range_month_positions) >= 2:
+                ordered = sorted(range_month_positions.items(), key=lambda x: x[1])
+                start_num = ordered[0][0]
+                end_num = ordered[-1][0]
+                if start_num <= end_num:
+                    for m in range(start_num, end_num + 1):
+                        months.add(m)
+                else:
+                    # Cross-year: e.g. December (12) through March (3)
+                    for m in range(start_num, 13):
+                        months.add(m)
+                    for m in range(1, end_num + 1):
+                        months.add(m)
+            else:
+                # Fallback: expand between numeric min and max of all found months
+                for m in range(min(found_months), max(found_months) + 1):
+                    months.add(m)
         else:
             months.update(found_months)
     else:

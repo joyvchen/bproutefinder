@@ -29,21 +29,57 @@ from upsert import fetch_routes_needing_detail, update_route_detail, mark_detail
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": USER_AGENT})
 
-# Headings inside Must Know that indicate a bike recommendation section
+# Headings inside Must Know that indicate a bike recommendation section.
+# Bare "gear" and "equipment" are excluded because they also match safety/camping sections.
+# Content validation in _walk_must_know_sections provides an additional guard.
 BIKE_HEADING_RE = re.compile(
     r'ideal\s*bike|best\s*bike|bike\s*(?:choice|recommendation|setup|type|kit)|'
-    r'conditions?\s+affecting|equipment|what\s+(?:to\s+)?ride|about\s+the\s+bike|'
-    r'recommended\s+bike|suitable\s*bike|gear\b',
+    r'conditions?\s+affecting|what\s+(?:to\s+)?(?:ride|bike)\b|about\s+the\s+bike|'
+    r'recommended\s+bike|suitable\s*bike|bike\s+(?:and\s+)?gear',
     re.IGNORECASE,
 )
 
-# Sentence contains a bike recommendation signal
+# Specific bike hardware nouns — presence of any of these means the text is bike-related.
+# Used as a strict first-pass filter to avoid author bios, safety sections, etc.
+BIKE_TYPE_RE = re.compile(
+    r'hardtail|hard[\s-]tail|gravel[\s-]bikes?\b|mountain[\s-]bikes?\b|\bMTB\b|'
+    r'rigid[\s-](?:bikes?\b|fork|setup)|touring[\s-]bikes?\b|fat[\s-]bikes?\b|fat[\s-]tires?\b|'
+    r'full[\s-]sus(?:pension)?|trail[\s-]bikes?\b|enduro[\s-]bikes?\b|'
+    r'\b29er\b|27\.5|plus[\s-]bikes?\b|plus[\s-]tires?\b|'
+    r'drop[\s-]bars?\b|flat[\s-]bars?\b|suspension[\s-]fork|rigid[\s-]fork|'
+    r'bikepacking[\s-]bikes?\b|adventure[\s-]bikes?\b',
+    re.IGNORECASE,
+)
+
+# Recommendation verbs/phrases. Used together with BIKE_TYPE_RE for stricter matching.
+BIKE_REC_RE = re.compile(
+    r'(?:I|we)\s+(?:recommend|suggest|prefer(?:red)?|found|rode|used)\b|'
+    r'\brecommend(?:ed)?\b|'
+    r'\bprefer(?:red)?\b|'
+    r'\bideal\s+(?:bike|choice|setup|option|for\s+(?:this|the))\b|'
+    r'\bbest\s+(?:suited|bike|option|choice|setup|ridden)\b|'
+    r'\bsuitable\s+(?:bike|for)\b|'
+    r'\boptimal\b|'
+    r'\bworks?\s+(?:well|great|best)\b',
+    re.IGNORECASE,
+)
+
+# Sentence contains a bike recommendation signal (broader fallback — used last resort only)
 BIKE_SIGNAL_RE = re.compile(
-    r'hardtail|gravel\s*bike|mountain\s*bike|\bMTB\b|rigid|touring\s*bike|fat\s*bike|'
-    r'full\s*sus(?:pension)?|trail\s*bike|enduro|'
+    r'hardtail|gravel[\s-]bikes?\b|mountain[\s-]bikes?\b|\bMTB\b|rigid[\s-](?:bikes?\b|fork)|'
+    r'touring[\s-]bikes?\b|fat[\s-]bikes?\b|full[\s-]sus(?:pension)?|trail[\s-]bikes?\b|enduro|'
     r'\b29er\b|27\.5|29\s*inch|700c|'
-    r'we\s+(?:recommend|prefer|suggest|found)|recommend(?:ed)?|ideal(?:\s+for)?|'
-    r'best\s+(?:suited|for|option|choice)|works?\s+(?:well|great|best)|\boptimal\b',
+    r'we\s+(?:recommend|prefer|suggest|found)\b|recommend(?:ed)?\b|'
+    r'\bideal\s+(?:bike|choice|option|setup|for\s+(?:this|the))\b|'
+    r'best\s+(?:suited|for|option|choice)\b|works?\s+(?:well|great|best)\b|\boptimal\b',
+    re.IGNORECASE,
+)
+
+# Sentence describes inadequate equipment — de-prioritize these when better options exist
+NEGATIVE_CONTEXT_RE = re.compile(
+    r'tough\s+going|hike.?a.?bike|struggled?|too\s+narrow|insufficient|'
+    r'difficult\s+(?:to\s+ride|on)|not\s+(?:enough|ideal|great|recommended|ideal)\b|'
+    r'made\s+(?:it\s+)?(?:hard|difficult)|would\s+(?:struggle|suffer)',
     re.IGNORECASE,
 )
 
@@ -217,7 +253,9 @@ def _walk_must_know_sections(el) -> dict:
             continue
 
         if BIKE_HEADING_RE.search(htext):
-            sections.setdefault('bike', content)
+            # Validate content is actually bike-related before storing
+            if content and (BIKE_TYPE_RE.search(content) or BIKE_REC_RE.search(content)):
+                sections.setdefault('bike', content)
         elif re.search(r'tire|tyre|wheel\s+size', htext, re.IGNORECASE):
             sections.setdefault('tire', content)
         elif re.search(r'when\s+to\s+go|season|best\s+time|weather', htext, re.IGNORECASE):
@@ -246,7 +284,8 @@ def _walk_must_know_sections(el) -> dict:
             if season_text:
                 sections.setdefault('season', season_text)
         elif BIKE_HEADING_RE.search(label):
-            if content and len(content) >= 15:
+            # Validate content is actually bike-related before storing
+            if content and len(content) >= 15 and (BIKE_TYPE_RE.search(content) or BIKE_REC_RE.search(content)):
                 sections.setdefault('bike', content)
         elif re.search(r'tire|tyre|wheel\s+size', label, re.IGNORECASE):
             if content and len(content) >= 15:
@@ -261,18 +300,45 @@ def _split_sentences(text: str) -> list:
 
 
 def _extract_bike_sentence(text: str) -> str:
-    """Return the sentence(s) from text that describe the bike recommendation."""
+    """Return the sentence(s) from text that describe the bike recommendation.
+
+    Three-pass approach: specific hardware + recommendation context first,
+    then hardware alone, then broad signal as last resort.
+    Returns '' (not the raw text) when no signal is found — this prevents
+    unrelated sections (author bios, safety tips) from leaking into ideal_bike.
+    """
     sentences = _split_sentences(text)
+    # Pass 1: specific bike hardware + recommendation or tire context, no negative context
+    hits = [s for s in sentences if BIKE_TYPE_RE.search(s) and (BIKE_REC_RE.search(s) or TIRE_SIGNAL_RE.search(s)) and not NEGATIVE_CONTEXT_RE.search(s)]
+    if hits:
+        return ' '.join(hits).strip()
+    # Pass 1b: same but allow negative context as fallback
+    hits = [s for s in sentences if BIKE_TYPE_RE.search(s) and (BIKE_REC_RE.search(s) or TIRE_SIGNAL_RE.search(s))]
+    if hits:
+        return ' '.join(hits).strip()
+    # Pass 2: specific bike hardware alone (no negative context first)
+    hits = [s for s in sentences if BIKE_TYPE_RE.search(s) and not NEGATIVE_CONTEXT_RE.search(s)]
+    if hits:
+        return ' '.join(hits).strip()
+    hits = [s for s in sentences if BIKE_TYPE_RE.search(s)]
+    if hits:
+        return ' '.join(hits).strip()
+    # Pass 3: broader signal as last resort — still no raw-text fallback
     hits = [s for s in sentences if BIKE_SIGNAL_RE.search(s)]
-    return ' '.join(hits).strip() if hits else text.strip()
+    return ' '.join(hits).strip() if hits else ''
 
 
 def _extract_tire_sentence(text: str) -> str:
     """Return sentence(s) from text that mention tire measurements.
     Prefers sentences with parseable widths over generic 'tire width' mentions
-    (e.g. avoids logistics sentences like 'Amtrak tire width regulations...')."""
+    (e.g. avoids logistics sentences like 'Amtrak tire width regulations...').
+    De-prioritizes sentences with negative context (e.g. 'tough going on 44mm tires')."""
     sentences = _split_sentences(text)
-    # Pass 1: sentences that both signal AND have a parseable measurement
+    # Pass 1: sentences that both signal AND have a parseable measurement, no negative context
+    hits = [s for s in sentences if TIRE_SIGNAL_RE.search(s) and parse_tire_width(s)[0] and not NEGATIVE_CONTEXT_RE.search(s)]
+    if hits:
+        return ' '.join(hits).strip()
+    # Pass 1b: parseable measurement but with negative context (last resort)
     hits = [s for s in sentences if TIRE_SIGNAL_RE.search(s) and parse_tire_width(s)[0]]
     if hits:
         return ' '.join(hits).strip()
@@ -316,7 +382,8 @@ def parse_must_know(soup: BeautifulSoup) -> dict:
             if w_min:
                 result['tire_width_min_mm'] = w_min
                 result['tire_width_max_mm'] = w_max or w_min
-        if 'tire_width_notes' not in result and len(tire_text) > 10:
+        # Only store tire notes if the text actually contains tire measurement signals
+        if 'tire_width_notes' not in result and TIRE_SIGNAL_RE.search(tire_text):
             result['tire_width_notes'] = tire_text
 
     # Season section
@@ -389,7 +456,8 @@ def parse_must_know(soup: BeautifulSoup) -> dict:
                 r'\s+(?:Best\s+(?:bike|time|season)|When\s+to\s+go|Resupply|Ideal\s+[Bb]ike)',
                 notes, flags=re.IGNORECASE
             )[0].strip()
-            if len(notes) > 10:
+            # Only store if it actually contains tire measurement content
+            if len(notes) > 10 and TIRE_SIGNAL_RE.search(notes):
                 result['tire_width_notes'] = notes
 
     # Season: regex fallback for "When to Go" not picked up as heading
@@ -511,24 +579,32 @@ def parse_editorial_body(soup: BeautifulSoup) -> dict:
             result['_tire_width_notes_from_body'] = tire_sent or p_text[:500]
             break
 
-    # Ideal bike fallback — two-pass:
-    # Pass 1: prefer paragraphs with BOTH a bike signal AND a tire/equipment signal
-    #         (avoids picking up "we suggest" in unrelated contexts like food)
-    # Pass 2: any paragraph with a bike signal alone
+    # Ideal bike fallback — two-pass using strict BIKE_TYPE_RE to avoid author bio false positives.
+    # Pass 1: specific bike hardware + recommendation or tire context
+    # Pass 2: specific bike hardware alone
     bike_para: Optional[str] = None
     for pass_num in (1, 2):
         for p in all_paragraphs:
             p_text = p.get_text(' ', strip=True)
-            if len(p_text) < 20 or len(p_text) > 800:
+            # Skip short text, long text, URL anchors (#hashtag), and bare links
+            if len(p_text) < 25 or len(p_text) > 800:
                 continue
-            has_bike = BIKE_SIGNAL_RE.search(p_text)
+            if re.match(r'^#\S', p_text) or re.match(r'^https?://', p_text):
+                continue
+            has_bike_type = BIKE_TYPE_RE.search(p_text)
             has_tire = TIRE_SIGNAL_RE.search(p_text)
-            if pass_num == 1 and not (has_bike and has_tire):
+            has_rec = BIKE_REC_RE.search(p_text)
+            if pass_num == 1 and not (has_bike_type and (has_rec or has_tire)):
                 continue
-            if pass_num == 2 and not has_bike:
+            if pass_num == 2 and not has_bike_type:
                 continue
             extracted = _extract_bike_sentence(p_text)
-            if extracted:
+            # Require extracted sentence to have recommendation or tire signal, not just
+            # a bike-type noun in a route description ("...UAE's best mountain bike trails").
+            # Also skip if entirely negative context (describing inadequate equipment).
+            if (extracted and len(extracted) >= 15 and not re.match(r'^#\S', extracted)
+                    and (BIKE_REC_RE.search(extracted) or TIRE_SIGNAL_RE.search(extracted))
+                    and not (NEGATIVE_CONTEXT_RE.search(extracted) and not BIKE_REC_RE.search(extracted))):
                 bike_para = extracted
                 break
         if bike_para:
