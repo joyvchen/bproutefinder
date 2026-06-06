@@ -327,6 +327,53 @@ _POSITIVE_SEASON_RE = re.compile(
 )
 
 
+_SEASONS_ORDERED = ['winter', 'spring', 'summer', 'fall', 'autumn']
+
+# Conjunctions that split a sentence into positive and negative clauses:
+# "Summer and fall are best since spring and winter are very wet"
+_CLAUSE_SPLIT_RE = re.compile(
+    r'\b(?:since|because|as\s+it|though|although|but|however|while|whereas|except)\b',
+    re.IGNORECASE,
+)
+# Adverse weather/condition signals used within a clause to flag it as negative
+_ADVERSE_CLAUSE_RE = re.compile(
+    r'\bwet\b|rain|mud|flood|freez|icy\b|storm\b|harsh\b|'
+    r'too\s+(?:hot|cold|wet|dry)|avoid\b|impass|not\s+recommended|snow\b|'
+    r'unpredictable|extreme\s+(?:heat|cold)',
+    re.IGNORECASE,
+)
+
+# Detect 'may' used as auxiliary verb (not the month May)
+_MAY_AUX_RE = re.compile(
+    r'\bmay\s+(?:be|have|not|also|well|still|need|seem|vary|differ|last|hold|start|end|run|'
+    r'remain|depend|include|affect|work|allow|limit|cause|get|help|prove|find|want|wish|see|'
+    r'come|go|lead|change|require|extend|open|close|experience)\b',
+    re.IGNORECASE,
+)
+# Detect 'may' used as a month name (adjacent to date context)
+_MAY_DATE_RE = re.compile(
+    r'\bmay\s*[-–,]|\bmay\s+\d+\b|\b(?:in|from|through|until|thru|of)\s+may\b',
+    re.IGNORECASE,
+)
+
+# Season-to-season range: "spring through fall", "summer to fall", etc.
+_SEASON_RANGE_RE2 = re.compile(
+    r'\b(spring|summer|fall|autumn|winter)\s+(?:through|thru|to|until|till|[-–])\s+(spring|summer|fall|autumn|winter)\b',
+    re.IGNORECASE,
+)
+# (start_month, end_month) for each season
+SEASON_SPAN: dict[str, tuple[int, int]] = {
+    'spring': (3, 5), 'summer': (6, 8),
+    'fall': (9, 11), 'autumn': (9, 11), 'winter': (12, 2),
+}
+
+
+def _are_consecutive(months: list[int]) -> bool:
+    """Return True if months form a gapless consecutive sequence."""
+    s = sorted(months)
+    return len(s) >= 2 and all(s[i + 1] - s[i] == 1 for i in range(len(s) - 1))
+
+
 def parse_best_season_months(text: str) -> list[int]:
     """
     Convert a best_season string to a sorted list of month numbers (1-12).
@@ -349,36 +396,38 @@ def parse_best_season_months(text: str) -> list[int]:
 
     months: set[int] = set()
     month_alt = '|'.join(MONTH_NAMES.keys())
-
-    # First extract named months
-    found_months = [m for name, m in MONTH_NAMES.items() if re.search(r'\b' + name + r'\b', text_lower)]
-
     sentences = re.split(r'(?<=[.!?;])\s+', text)
 
-    if found_months:
-        # If season names appear in a positive-context sentence AND all found months fall
-        # within those seasons, the months are just examples — expand to the full season.
-        # Example: "Spring and fall are ideal. May and October are the best months."
-        # → May ∈ spring, October ∈ fall → expand to [Mar-May, Sep-Nov].
-        _SEASONS_ORDERED = ['winter', 'spring', 'summer', 'fall', 'autumn']
-        for sent in sentences:
-            s_lower = sent.lower()
-            pos_seas = [s for s in _SEASONS_ORDERED if re.search(r'\b' + s + r'\b', s_lower)]
-            if pos_seas and _POSITIVE_SEASON_RE.search(sent) and not _NEGATIVE_SEASON_RE.search(sent):
-                season_union = set(m for s in pos_seas for m in SEASON_MONTHS[s])
-                if set(found_months).issubset(season_union):
-                    return sorted(season_union)
-                break  # positive season sentence found but months don't fit — use month logic
+    # Prefer months from positive-context sentences over months from the full text.
+    # "Spring and fall are ideal. May and October are the best months. Dec–Mar is rainy."
+    # → positive sentences give May, Oct; full text would also give Dec, Mar (wrong).
+    positive_sents = [s for s in sentences
+                      if _POSITIVE_SEASON_RE.search(s) and not _NEGATIVE_SEASON_RE.search(s)]
+    pos_text_lower = ' '.join(positive_sents).lower()
+    found_months_pos = list({m for name, m in MONTH_NAMES.items()
+                             if re.search(r'\b' + name + r'\b', pos_text_lower)})
+    found_months_all = list({m for name, m in MONTH_NAMES.items()
+                             if re.search(r'\b' + name + r'\b', text_lower)})
 
-        # Only fill the range between months when they're explicitly connected with
-        # "through / to / until / – / -" or "between X and Y" (e.g. "June through September").
-        # When months are comma-listed ("March, April, October, November"), just use those months.
+    # Strip month 5 (May) when it only appears as an auxiliary verb, not as a month name.
+    # "The route may be rideable in June" → 'may' is auxiliary, not the month May.
+    if 5 in found_months_pos and _MAY_AUX_RE.search(pos_text_lower) and not _MAY_DATE_RE.search(pos_text_lower):
+        found_months_pos = [m for m in found_months_pos if m != 5]
+    if 5 in found_months_all and _MAY_AUX_RE.search(text_lower) and not _MAY_DATE_RE.search(text_lower):
+        found_months_all = [m for m in found_months_all if m != 5]
+
+    found_months = found_months_pos if found_months_pos else found_months_all
+    search_text_lower = pos_text_lower if found_months_pos else text_lower
+
+    if found_months:
+        # Build range regex upfront so we can check for range signals before expansion.
+        # Gap: up to 40 chars left (handles "May (at the earliest) until September")
+        # and 20 chars right ("until the end of September").
         RANGE_RE = re.compile(
-            r'(?:' + month_alt + r').{0,15}(?:through|thru|until|till|\bto\b|[-–]).{0,15}(?:' + month_alt + r')'
-            r'|between\s+(?:\w+\s+){0,3}(?:' + month_alt + r').{0,20}(?:and|to).{0,15}(?:' + month_alt + r')',
+            r'(?:' + month_alt + r')[^.!?]{0,40}(?:through|thru|until|till|\bto\b|[-–])[^.!?]{0,20}(?:' + month_alt + r')'
+            r'|between\s+(?:\w+\s+){0,4}(?:' + month_alt + r').{0,30}(?:and|to).{0,20}(?:' + month_alt + r')',
         )
-        # Prefer a range in a positive-context sentence ("best approached between May-June")
-        # over one in a neutral/negative sentence ("January-February sees snow").
+        # Prefer a range in a positive-context sentence
         range_signal = None
         for sent in sentences:
             m = RANGE_RE.search(sent.lower())
@@ -386,12 +435,24 @@ def parse_best_season_months(text: str) -> list[int]:
                 range_signal = m
                 break
         if range_signal is None:
-            range_signal = RANGE_RE.search(text_lower)
+            range_signal = RANGE_RE.search(search_text_lower)
+
+        # Season expansion: if season names appear in a positive sentence AND all found months
+        # fall within those seasons (as examples), expand to the full season union.
+        # "Spring and fall are ideal. May and October are the best months." → [Mar-May, Sep-Nov].
+        # Skip expansion when an explicit range signal exists — let range detection take over.
+        if range_signal is None:
+            for sent in sentences:
+                s_lower = sent.lower()
+                pos_seas = [s for s in _SEASONS_ORDERED if re.search(r'\b' + s + r'\b', s_lower)]
+                if pos_seas and _POSITIVE_SEASON_RE.search(sent) and not _NEGATIVE_SEASON_RE.search(sent):
+                    season_union = set(m for s in pos_seas for m in SEASON_MONTHS[s])
+                    # Only expand when found_months are sparse (non-consecutive) examples of seasons.
+                    if set(found_months).issubset(season_union) and not _are_consecutive(found_months):
+                        return sorted(season_union)
+                    break  # positive season sentence found but months don't fit — use month logic
 
         if range_signal and len(found_months) >= 2:
-            # Use only the months inside the matched range expression — not all months
-            # in the full text. This prevents "December–March. November or April are possible"
-            # from incorrectly expanding to include November and April.
             range_text = range_signal.group(0)
             range_month_positions: dict[int, int] = {}
             for name, m in MONTH_NAMES.items():
@@ -399,6 +460,9 @@ def parse_best_season_months(text: str) -> list[int]:
                     idx = range_text.find(name)
                     if idx >= 0:
                         range_month_positions[m] = idx
+            # Filter auxiliary 'may' from range endpoints (e.g. "may be rideable from june to oct")
+            if 5 in range_month_positions and _MAY_AUX_RE.search(range_text) and not _MAY_DATE_RE.search(range_text):
+                del range_month_positions[5]
             if len(range_month_positions) >= 2:
                 ordered = sorted(range_month_positions.items(), key=lambda x: x[1])
                 start_num = ordered[0][0]
@@ -413,28 +477,60 @@ def parse_best_season_months(text: str) -> list[int]:
                     for m in range(1, end_num + 1):
                         months.add(m)
             else:
-                # Fallback: expand between numeric min and max of all found months
                 for m in range(min(found_months), max(found_months) + 1):
                     months.add(m)
         else:
             months.update(found_months)
     else:
         # Season-name fallback: sentence-by-sentence.
-        # Skip sentences with negative context ("Summer is too hot", "avoid winter").
-        # Union seasons mentioned — do NOT fill the range between them: "spring and fall"
-        # should give [3,4,5,9,10,11], not [3,4,5,6,7,8,9,10,11] (which would include summer).
-        ordered_seasons = ['winter', 'spring', 'summer', 'fall', 'autumn']
-        sentences = re.split(r'(?<=[.!?])\s+', text)
+        # Splits on causal conjunctions so "Summer/fall are best since spring/winter are wet"
+        # correctly yields only summer+fall, not all four seasons.
         for sent in sentences:
             s_lower = sent.lower()
-            found_seasons = [s for s in ordered_seasons if re.search(r'\b' + s + r'\b', s_lower)]
+            found_seasons = [s for s in _SEASONS_ORDERED if re.search(r'\b' + s + r'\b', s_lower)]
             if not found_seasons:
                 continue
-            if _NEGATIVE_SEASON_RE.search(sent):
-                continue
-            for s in found_seasons:
-                months.update(SEASON_MONTHS[s])
-            break  # stop after first non-negative sentence with season names
+            if _NEGATIVE_SEASON_RE.search(sent) and not _POSITIVE_SEASON_RE.search(sent):
+                continue  # entire sentence is negative context — skip
+
+            # Season-to-season range: "spring through fall" → expand to full continuous window
+            season_range_m = _SEASON_RANGE_RE2.search(s_lower)
+            if season_range_m:
+                s1 = season_range_m.group(1).lower()
+                s2 = season_range_m.group(2).lower()
+                start_m, _ = SEASON_SPAN[s1]
+                _, end_m = SEASON_SPAN[s2]
+                if start_m <= end_m:
+                    months.update(range(start_m, end_m + 1))
+                else:
+                    months.update(range(start_m, 13))
+                    months.update(range(1, end_m + 1))
+                break
+
+            # Split sentence on causal/contrasting conjunctions into positive and negative clauses
+            parts = _CLAUSE_SPLIT_RE.split(sent)
+            pos_ms: set[int] = set()
+            neg_ms: set[int] = set()
+            for part in parts:
+                p_lower = part.lower()
+                p_seas = [s for s in _SEASONS_ORDERED if re.search(r'\b' + s + r'\b', p_lower)]
+                if not p_seas:
+                    continue
+                if _ADVERSE_CLAUSE_RE.search(part) and not _POSITIVE_SEASON_RE.search(part):
+                    for s in p_seas:
+                        neg_ms.update(SEASON_MONTHS[s])
+                else:
+                    for s in p_seas:
+                        pos_ms.update(SEASON_MONTHS[s])
+
+            result_ms = pos_ms - neg_ms
+            if result_ms:
+                months.update(result_ms)
+            elif pos_ms:
+                months.update(pos_ms)
+            else:
+                continue  # all seasons in this sentence were negative — try next
+            break
 
     return sorted(months)
 
