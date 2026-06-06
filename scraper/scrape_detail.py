@@ -22,6 +22,7 @@ from utils import (
     parse_difficulty, parse_pct, parse_elevation, parse_distance,
     parse_days, parse_days_value, parse_elevation_value, parse_difficulty_value,
     extract_bike_types, parse_tire_width, parse_best_season_months,
+    _is_bare_month_list, _POSITIVE_SEASON_RE, _NEGATIVE_SEASON_RE,
 )
 from upsert import fetch_routes_needing_detail, update_route_detail, mark_detail_scraped
 
@@ -388,7 +389,7 @@ def parse_must_know(soup: BeautifulSoup) -> dict:
 
     # Season section
     season_text = sections.get('season', '')
-    if season_text:
+    if season_text and not _is_bare_month_list(season_text):
         result['best_season'] = season_text
         months = parse_best_season_months(season_text)
         if months:
@@ -475,7 +476,53 @@ def parse_must_know(soup: BeautifulSoup) -> dict:
             if months:
                 result['best_season_months'] = months
 
+    # Season: editorial body fallback when no structured section or label was found.
+    # Scans article paragraphs for sentences that explicitly recommend a riding window.
+    if 'best_season' not in result:
+        _season_body_fallback(soup, result)
+
     return result
+
+
+# Sentence patterns used for the editorial body season fallback
+_SEASON_INDICATOR_RE = re.compile(
+    r'january|february|march|april|may|june|july|august|september|october|november|december|'
+    r'jan\b|feb\b|mar\b|apr\b|jun\b|jul\b|aug\b|sep\b|sept\b|oct\b|nov\b|dec\b|'
+    r'spring|summer|fall|autumn|winter',
+    re.IGNORECASE,
+)
+_SEASON_RANGE_RE = re.compile(r'\b(?:from|between|through|thru|until|till)\b', re.IGNORECASE)
+
+
+def _season_body_fallback(soup: BeautifulSoup, result: dict) -> None:
+    """
+    Scan the editorial article body for sentences that describe when to ride,
+    used when no structured 'When to Go' section was found.
+    Requires a positive context signal (best/ideal/recommended/rideable…) OR an
+    explicit month range; skips sentences with negative context (too hot/cold, avoid…).
+    """
+    article = (
+        soup.find('article')
+        or soup.find(class_=re.compile(r'entry.?content|post.?content', re.IGNORECASE))
+        or soup
+    )
+    for p in article.find_all('p'):
+        p_text = p.get_text(' ', strip=True)
+        if len(p_text) < 30 or len(p_text) > 600:
+            continue
+        if not _SEASON_INDICATOR_RE.search(p_text):
+            continue
+        has_positive = _POSITIVE_SEASON_RE.search(p_text)
+        has_range = _SEASON_RANGE_RE.search(p_text)
+        if not (has_positive or has_range):
+            continue
+        if _NEGATIVE_SEASON_RE.search(p_text) and not has_positive:
+            continue
+        months = parse_best_season_months(p_text)
+        if months and 0 < len(months) < 12:
+            result['best_season'] = p_text[:300]
+            result['best_season_months'] = months
+            break
 
 
 def parse_difficulty2(soup: BeautifulSoup) -> dict:

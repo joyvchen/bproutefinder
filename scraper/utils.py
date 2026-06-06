@@ -296,36 +296,100 @@ SEASON_MONTHS: dict[str, list[int]] = {
 }
 
 
+def _is_bare_month_list(text: str) -> bool:
+    """
+    Return True if text is just a list of month names/abbreviations with no prose.
+    Used to detect visual calendar widgets whose text is e.g. "Jan Feb Jul Aug Sep".
+    """
+    tokens = [t for t in re.split(r'[\s,/|]+', text.strip().lower()) if t]
+    if not tokens or len(tokens) > 12:
+        return False
+    month_count = sum(1 for t in tokens if t in MONTH_NAMES)
+    return month_count >= len(tokens) * 0.85
+
+
+# Negative season context: sentences saying a month/season is bad to avoid
+_NEGATIVE_SEASON_RE = re.compile(
+    r'too\s+(?:hot|cold|wet|dry|harsh|icy|snowy|extreme)|'
+    r'\bavoid\b|'
+    r'not\s+(?:recommended|ideal|suitable|advisable)|'
+    r'brings?\s+(?:snow|ice|floods?|extreme\s+heat)|'
+    r'impass(?:able|ible)|'
+    r'closed\s+(?:due|by|from)',
+    re.IGNORECASE,
+)
+
+# Positive season context: sentences recommending a time to go
+_POSITIVE_SEASON_RE = re.compile(
+    r'best|ideal|recommend|rideable|bikeable|accessible|perfect|optimal|prime|'
+    r'popular|pleasant|preferred|suited|suitable|open\s+from',
+    re.IGNORECASE,
+)
+
+
 def parse_best_season_months(text: str) -> list[int]:
     """
     Convert a best_season string to a sorted list of month numbers (1-12).
     Handles: 'June through September', 'Late summer to early fall',
-             'July-August', 'Spring and summer', 'Year-round', etc.
+             'July-August', 'Spring and fall', 'Year-round', etc.
     """
     if not text:
         return []
     text_lower = text.lower()
 
-    if re.search(r'year.?round|all year|any time|anytime', text_lower):
+    # --- Year-round checks ---
+    if re.search(r'year.?round|all.?year|all\s+seasons?\b|ride\s+all\s+(?:seasons?|year)', text_lower):
         return list(range(1, 13))
+    # "anytime/any time" = year-round only if NOT immediately followed by a range qualifier
+    anytime_m = re.search(r'any[\s-]?time|anytime', text_lower)
+    if anytime_m:
+        after = text_lower[anytime_m.end():anytime_m.end() + 80]
+        if not re.search(r'\b(?:between|from|except|but|however|unless|other\s+than)\b', after):
+            return list(range(1, 13))
 
     months: set[int] = set()
+    month_alt = '|'.join(MONTH_NAMES.keys())
 
     # First extract named months
     found_months = [m for name, m in MONTH_NAMES.items() if re.search(r'\b' + name + r'\b', text_lower)]
 
+    sentences = re.split(r'(?<=[.!?;])\s+', text)
+
     if found_months:
+        # If season names appear in a positive-context sentence AND all found months fall
+        # within those seasons, the months are just examples — expand to the full season.
+        # Example: "Spring and fall are ideal. May and October are the best months."
+        # → May ∈ spring, October ∈ fall → expand to [Mar-May, Sep-Nov].
+        _SEASONS_ORDERED = ['winter', 'spring', 'summer', 'fall', 'autumn']
+        for sent in sentences:
+            s_lower = sent.lower()
+            pos_seas = [s for s in _SEASONS_ORDERED if re.search(r'\b' + s + r'\b', s_lower)]
+            if pos_seas and _POSITIVE_SEASON_RE.search(sent) and not _NEGATIVE_SEASON_RE.search(sent):
+                season_union = set(m for s in pos_seas for m in SEASON_MONTHS[s])
+                if set(found_months).issubset(season_union):
+                    return sorted(season_union)
+                break  # positive season sentence found but months don't fit — use month logic
+
         # Only fill the range between months when they're explicitly connected with
-        # "through / to / – / -" or "between X and Y" (e.g. "June through September").
+        # "through / to / until / – / -" or "between X and Y" (e.g. "June through September").
         # When months are comma-listed ("March, April, October, November"), just use those months.
-        month_alt = '|'.join(MONTH_NAMES.keys())
-        range_signal = re.search(
-            r'(?:' + month_alt + r').{0,15}(?:through|thru|\bto\b|[-–]).{0,15}(?:' + month_alt + r')'
+        RANGE_RE = re.compile(
+            r'(?:' + month_alt + r').{0,15}(?:through|thru|until|till|\bto\b|[-–]).{0,15}(?:' + month_alt + r')'
             r'|between\s+(?:\w+\s+){0,3}(?:' + month_alt + r').{0,20}(?:and|to).{0,15}(?:' + month_alt + r')',
-            text_lower,
         )
+        # Prefer a range in a positive-context sentence ("best approached between May-June")
+        # over one in a neutral/negative sentence ("January-February sees snow").
+        range_signal = None
+        for sent in sentences:
+            m = RANGE_RE.search(sent.lower())
+            if m and _POSITIVE_SEASON_RE.search(sent):
+                range_signal = m
+                break
+        if range_signal is None:
+            range_signal = RANGE_RE.search(text_lower)
+
         if range_signal and len(found_months) >= 2:
-            # Use only the two months inside the matched range expression — not all months
+            # Use only the months inside the matched range expression — not all months
             # in the full text. This prevents "December–March. November or April are possible"
             # from incorrectly expanding to include November and April.
             range_text = range_signal.group(0)
@@ -343,7 +407,7 @@ def parse_best_season_months(text: str) -> list[int]:
                     for m in range(start_num, end_num + 1):
                         months.add(m)
                 else:
-                    # Cross-year: e.g. December (12) through March (3)
+                    # Cross-year: e.g. September (9) through June (6)
                     for m in range(start_num, 13):
                         months.add(m)
                     for m in range(1, end_num + 1):
@@ -355,23 +419,22 @@ def parse_best_season_months(text: str) -> list[int]:
         else:
             months.update(found_months)
     else:
-        # Fall back to season names — only check the FIRST sentence that mentions a season.
-        # Later sentences often mention bad seasons in a negative context ("Winter brings snow..."),
-        # and we don't want those to corrupt the recommendation.
-        ordered = ['winter', 'spring', 'summer', 'fall', 'autumn']
+        # Season-name fallback: sentence-by-sentence.
+        # Skip sentences with negative context ("Summer is too hot", "avoid winter").
+        # Union seasons mentioned — do NOT fill the range between them: "spring and fall"
+        # should give [3,4,5,9,10,11], not [3,4,5,6,7,8,9,10,11] (which would include summer).
+        ordered_seasons = ['winter', 'spring', 'summer', 'fall', 'autumn']
         sentences = re.split(r'(?<=[.!?])\s+', text)
         for sent in sentences:
             s_lower = sent.lower()
-            found_seasons = [s for s in ordered if re.search(r'\b' + s + r'\b', s_lower)]
+            found_seasons = [s for s in ordered_seasons if re.search(r'\b' + s + r'\b', s_lower)]
             if not found_seasons:
                 continue
-            if len(found_seasons) == 1:
-                months.update(SEASON_MONTHS[found_seasons[0]])
-            else:
-                all_months = [m for s in found_seasons for m in SEASON_MONTHS[s]]
-                for m in range(min(all_months), max(all_months) + 1):
-                    months.add(m)
-            break  # stop after first sentence that has season names
+            if _NEGATIVE_SEASON_RE.search(sent):
+                continue
+            for s in found_seasons:
+                months.update(SEASON_MONTHS[s])
+            break  # stop after first non-negative sentence with season names
 
     return sorted(months)
 
