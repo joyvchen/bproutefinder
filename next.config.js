@@ -1,6 +1,5 @@
-import type { NextConfig } from 'next'
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   images: {
     remotePatterns: [
       { hostname: 'bikepacking.com' },
@@ -8,7 +7,6 @@ const nextConfig: NextConfig = {
       { hostname: 'images.bikepacking.com' },
     ],
   },
-  transpilePackages: ['mapbox-gl'],
 }
 
-export default nextConfig
+module.exports = nextConfig

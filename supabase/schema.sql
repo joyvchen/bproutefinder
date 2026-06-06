@@ -45,6 +45,10 @@ CREATE TABLE routes (
   image_url         TEXT,
   image_alt         TEXT,
 
+  -- Ride with GPS embed (actual route path, embedded on detail page)
+  rwgps_route_id    TEXT,
+  rwgps_embed_url   TEXT,
+
   -- Editorial badges
   is_top_pick          BOOLEAN DEFAULT FALSE,
   recommendation_score INTEGER DEFAULT 0,          -- count of editorial appearances

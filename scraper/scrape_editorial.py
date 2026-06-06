@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Pass 3: Scrape editorial roundup pages and assign Top Pick badges.
 
@@ -12,8 +13,8 @@ import re
 import time
 import requests
 from bs4 import BeautifulSoup
-from config import EDITORIAL_URLS, BASE_URL, USER_AGENT
-from upsert import fetch_all_routes_for_editorial, upsert_editorial_feature, sync_scores
+from config import EDITORIAL_URLS, EDITORIAL_LABELS, BASE_URL, USER_AGENT
+from upsert import fetch_all_routes_for_editorial, upsert_editorial_feature, sync_scores, update_route_editorial
 
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": USER_AGENT})
@@ -78,6 +79,10 @@ def run(dry_run: bool = False) -> int:
                     source_title=title,
                     dry_run=dry_run,
                 )
+                if not dry_run:
+                    update_route_editorial(
+                        route['id'], editorial_url, EDITORIAL_LABELS.get(editorial_url, '')
+                    )
                 total_badges += 1
             else:
                 # Try partial match (slug)
@@ -91,6 +96,10 @@ def run(dry_run: bool = False) -> int:
                             source_title=title,
                             dry_run=dry_run,
                         )
+                        if not dry_run:
+                            update_route_editorial(
+                                r['id'], editorial_url, EDITORIAL_LABELS.get(editorial_url, '')
+                            )
                         total_badges += 1
                         break
 
