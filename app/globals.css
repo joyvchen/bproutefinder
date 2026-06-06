@@ -2,8 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Mapbox GL overrides */
-.mapboxgl-popup-content {
+/* MapLibre GL overrides */
+.maplibregl-popup-content {
   padding: 0 !important;
   border-radius: 12px !important;
   overflow: hidden;
@@ -11,7 +11,7 @@
   font-family: Inter, system-ui, sans-serif;
 }
 
-.mapboxgl-popup-close-button {
+.maplibregl-popup-close-button {
   top: 6px !important;
   right: 8px !important;
   color: #fff !important;
@@ -24,14 +24,54 @@
   text-align: center !important;
 }
 
-.mapboxgl-ctrl-bottom-left {
+.maplibregl-ctrl-bottom-left {
   bottom: 0;
 }
 
-/* Hide Mapbox logo area on small screens */
+/* Hide MapLibre logo on small screens */
 @media (max-width: 640px) {
-  .mapboxgl-ctrl-logo { display: none !important; }
+  .maplibregl-ctrl-logo { display: none !important; }
 }
+
+/* Dual-thumb range slider — pointer-events on thumb only, not the track */
+.range-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.range-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: all;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #16a34a;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  cursor: grab;
+}
+.range-thumb:active::-webkit-slider-thumb { cursor: grabbing; background: #f0fdf4; }
+.range-thumb::-webkit-slider-runnable-track { background: transparent; height: 100%; }
+
+.range-thumb::-moz-range-thumb {
+  pointer-events: all;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #16a34a;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  cursor: grab;
+}
+.range-thumb:active::-moz-range-thumb { cursor: grabbing; background: #f0fdf4; }
+.range-thumb::-moz-range-track { background: transparent; }
 
 /* Smooth scrollbars */
 * {
