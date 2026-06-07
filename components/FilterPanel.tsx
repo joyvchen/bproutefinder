@@ -213,7 +213,10 @@ export default function FilterPanel({
           min={1.0} max={5.0} step={0.1}
           onMin={(v) => onUpdate('tire_width_min', v != null && v > 1.0 ? Math.round(v * 25.4) : null)}
           onMax={(v) => onUpdate('tire_width_max', v != null && v < 5.0 ? Math.round(v * 25.4) : null)}
-          format={(v) => `${v.toFixed(1)}"`}
+          format={(v) => {
+            const mm = Math.round(v * 25.4)
+            return mm <= 47 ? `${mm}mm` : `${mm}mm (${v.toFixed(1)}")`
+          }}
         />
       </Section>
 
