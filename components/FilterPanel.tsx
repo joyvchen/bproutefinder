@@ -378,7 +378,7 @@ function DualRangeSlider({
           onPointerDown={() => setThumbDown('lo')}
           onChange={(e) => {
             const raw = parseFloat(e.target.value)
-            const v = scale === 'sqrt' ? fromPos(raw) : raw
+            const v = nonLinear ? fromPos(raw) : raw
             onMin(v <= min ? null : Math.min(v, hi))
           }}
           className="range-thumb"
@@ -389,7 +389,7 @@ function DualRangeSlider({
           onPointerDown={() => setThumbDown('hi')}
           onChange={(e) => {
             const raw = parseFloat(e.target.value)
-            const v = scale === 'sqrt' ? fromPos(raw) : raw
+            const v = nonLinear ? fromPos(raw) : raw
             onMax(v >= max ? null : Math.max(v, lo))
           }}
           className="range-thumb"
