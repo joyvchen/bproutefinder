@@ -174,7 +174,7 @@ export default function FilterPanel({
             scale={{ pivot: 1500, pivotPct: 0.85 }}
             onMin={(v) => onUpdate('distance_min', v)}
             onMax={(v) => onUpdate('distance_max', v)}
-            format={(v) => `${v}`}
+            format={(v) => `${v} mi`}
           />
           <DualRangeSlider
             label="Ascent (ft)"
@@ -183,7 +183,7 @@ export default function FilterPanel({
             scale={{ pivot: 100000, pivotPct: 0.85 }}
             onMin={(v) => onUpdate('elevation_min', v)}
             onMax={(v) => onUpdate('elevation_max', v)}
-            format={(v) => `${v.toLocaleString()}`}
+            format={(v) => `${v.toLocaleString()} ft`}
           />
           <DualRangeSlider
             label="Unpaved %"
