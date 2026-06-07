@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import type { Route } from '@/lib/types'
 import { useFilters } from '@/hooks/useFilters'
@@ -78,47 +78,10 @@ function ListViewPanel({
 const CARD_W = 340
 const CARD_MARGIN = 16
 
-function pinCardStyle(
-  pinPos: { x: number; y: number },
-  container: HTMLDivElement | null,
-  cardHeight: number,
-): React.CSSProperties {
-  const cw = container?.clientWidth ?? window.innerWidth
-  const ch = container?.clientHeight ?? window.innerHeight
-
-  // Horizontal: right of pin by default; flip left if near right edge
-  const preferLeft = pinPos.x + CARD_W + CARD_MARGIN * 2 > cw
-  const rawLeft = preferLeft
-    ? pinPos.x - CARD_W - CARD_MARGIN
-    : pinPos.x + CARD_MARGIN
-  const left = Math.max(CARD_MARGIN, Math.min(cw - CARD_W - CARD_MARGIN, rawLeft))
-
-  // Vertical: try below pin, then above, then whichever side has more room
-  const spaceBelow = ch - pinPos.y - CARD_MARGIN
-  const spaceAbove = pinPos.y - CARD_MARGIN
-  let top: number
-  if (cardHeight <= spaceBelow) {
-    top = pinPos.y + CARD_MARGIN
-  } else if (cardHeight <= spaceAbove) {
-    top = pinPos.y - cardHeight - CARD_MARGIN
-  } else if (spaceBelow >= spaceAbove) {
-    top = pinPos.y + CARD_MARGIN
-  } else {
-    top = Math.max(CARD_MARGIN, ch - cardHeight - CARD_MARGIN)
-  }
-
-  return {
-    left,
-    top,
-    transition: 'left 0.07s ease-out, top 0.07s ease-out',
-  }
-}
-
 export default function MapExplorer() {
   const [view, setView] = useState<'map' | 'list'>('map')
   const [flyToRoute, setFlyToRoute] = useState<Route | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [pinPos, setPinPos] = useState<{ x: number; y: number } | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
 
   const { filters, updateFilter, resetFilters, toggleBikeType } = useFilters()
@@ -126,7 +89,6 @@ export default function MapExplorer() {
   const { selectedRouteId, hoveredRouteId, setMapReady, selectRoute, hoverRoute } = useMapState()
 
   const cardRef = useRef<HTMLDivElement>(null)
-  const [cardMeasured, setCardMeasured] = useState<{ height: number; ready: boolean }>({ height: 450, ready: false })
 
   const [mapRoutes, setMapRoutes] = useState<Route[]>([])
   useEffect(() => {
@@ -138,26 +100,69 @@ export default function MapExplorer() {
     ?? routes.find((r) => r.id === selectedRouteId)
     ?? null
 
-  useLayoutEffect(() => {
-    if (!selectedRoute || !cardRef.current) {
-      setCardMeasured((m) => ({ ...m, ready: false }))
-      return
+  // ── Draggable card state ──────────────────────────────────────────
+  // null = default position (top-right corner); set after first drag
+  const [cardPos, setCardPos] = useState<{ x: number; y: number } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragRef = useRef<{
+    startMouse: { x: number; y: number }
+    startCard: { x: number; y: number }
+  } | null>(null)
+
+  // Reset drag position when card is dismissed
+  const handleDeselect = useCallback(() => {
+    selectRoute(null)
+    setCardPos(null)
+  }, [selectRoute])
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const cardEl = cardRef.current
+    if (!cardEl) return
+    const rect = cardEl.getBoundingClientRect()
+    dragRef.current = {
+      startMouse: { x: e.clientX, y: e.clientY },
+      startCard: { x: rect.left, y: rect.top },
     }
-    const h = cardRef.current.scrollHeight
-    setCardMeasured({ height: h, ready: true })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRoute?.id])
+    setIsDragging(true)
+  }, [])
+
+  useEffect(() => {
+    function handleMouseMove(e: MouseEvent) {
+      if (!dragRef.current) return
+      const dx = e.clientX - dragRef.current.startMouse.x
+      const dy = e.clientY - dragRef.current.startMouse.y
+      const newX = dragRef.current.startCard.x + dx
+      const newY = dragRef.current.startCard.y + dy
+      setCardPos({
+        x: Math.max(0, Math.min(window.innerWidth - CARD_W, newX)),
+        y: Math.max(0, Math.min(window.innerHeight - 60, newY)),
+      })
+    }
+    function handleMouseUp() {
+      if (!dragRef.current) return
+      dragRef.current = null
+      setIsDragging(false)
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [])
+
+  // Card position: use dragged coords if set, otherwise snap to top-right viewport corner
+  const cardPosStyle: React.CSSProperties = cardPos
+    ? { top: cardPos.y, left: cardPos.x }
+    : { top: CARD_MARGIN, right: CARD_MARGIN }
 
   const handleRouteClick = useCallback((route: Route) => {
     selectRoute(route.id)
     setFlyToRoute(route)
     if (view === 'list') setView('map')
   }, [selectRoute, view])
-
-  const handleDeselect = useCallback(() => {
-    selectRoute(null)
-    setPinPos(null)
-  }, [selectRoute])
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white">
@@ -207,7 +212,6 @@ export default function MapExplorer() {
             onRouteSelect={selectRoute}
             onMapReady={setMapReady}
             flyToRoute={flyToRoute}
-            onPinPosition={setPinPos}
           />
         </div>
 
@@ -225,17 +229,34 @@ export default function MapExplorer() {
           />
         )}
 
-        {/* Selected route card — anchored to pin */}
+        {/* Selected route card — fixed to viewport, draggable */}
         {view === 'map' && selectedRoute && (
           <div
             ref={cardRef}
-            className="absolute z-10 w-[340px] rounded-xl shadow-2xl border border-gray-200 bg-white overflow-hidden"
-            style={
-              pinPos && cardMeasured.ready
-                ? pinCardStyle(pinPos, contentRef.current, cardMeasured.height)
-                : { visibility: 'hidden', pointerEvents: 'none', top: 0, left: 0 }
-            }
+            className="fixed z-20 w-[340px] rounded-xl shadow-2xl border border-gray-200 bg-white overflow-hidden select-none"
+            style={cardPosStyle}
           >
+            {/* Drag handle bar */}
+            <div
+              className={`h-8 bg-gray-50 border-b border-gray-100 flex items-center px-3 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+              onMouseDown={handleDragStart}
+            >
+              {/* Centered grip dots */}
+              <div className="flex-1 flex items-center justify-center gap-0.5">
+                <div className="w-5 h-1 rounded-full bg-gray-300" />
+              </div>
+              {/* Close button */}
+              <button
+                className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={handleDeselect}
+                aria-label="Close"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+                  <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
             <RouteCard route={selectedRoute} layout="grid" />
           </div>
         )}
