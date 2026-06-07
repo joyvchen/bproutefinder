@@ -170,7 +170,8 @@ export default function FilterPanel({
           <DualRangeSlider
             label="Distance (mi)"
             minVal={filters.distance_min} maxVal={filters.distance_max}
-            min={0} max={6000} step={50} scale="sqrt"
+            min={0} max={6000} step={10}
+            scale={{ pivot: 1500, pivotPct: 0.85 }}
             onMin={(v) => onUpdate('distance_min', v)}
             onMax={(v) => onUpdate('distance_max', v)}
             format={(v) => `${v}`}
@@ -178,7 +179,8 @@ export default function FilterPanel({
           <DualRangeSlider
             label="Ascent (ft)"
             minVal={filters.elevation_min} maxVal={filters.elevation_max}
-            min={0} max={300000} step={5000} scale="sqrt"
+            min={0} max={300000} step={1000}
+            scale={{ pivot: 100000, pivotPct: 0.85 }}
             onMin={(v) => onUpdate('elevation_min', v)}
             onMax={(v) => onUpdate('elevation_max', v)}
             format={(v) => `${v.toLocaleString()}`}
@@ -206,18 +208,12 @@ export default function FilterPanel({
       <Section label="Tire Width" id="tire" open={openSections.has('tire')} onToggle={toggle}>
         <DualRangeSlider
           label="Compatible tire width"
-          minVal={filters.tire_width_min} maxVal={filters.tire_width_max}
-          min={25} max={120} step={5}
-          onMin={(v) => onUpdate('tire_width_min', v)}
-          onMax={(v) => onUpdate('tire_width_max', v)}
-          format={(v) => {
-            if (v > 47) {
-              const inch = v / 25.4
-              const inchStr = (inch % 1 === 0 ? inch : parseFloat(inch.toFixed(1))).toString()
-              return `${v}mm (${inchStr}")`
-            }
-            return `${v}mm`
-          }}
+          minVal={filters.tire_width_min != null ? filters.tire_width_min / 25.4 : null}
+          maxVal={filters.tire_width_max != null ? filters.tire_width_max / 25.4 : null}
+          min={1.0} max={5.0} step={0.1}
+          onMin={(v) => onUpdate('tire_width_min', v != null && v > 1.0 ? Math.round(v * 25.4) : null)}
+          onMax={(v) => onUpdate('tire_width_max', v != null && v < 5.0 ? Math.round(v * 25.4) : null)}
+          format={(v) => `${v.toFixed(1)}"`}
         />
       </Section>
 
@@ -277,6 +273,10 @@ function Section({
   )
 }
 
+// Piecewise scale: pivotPct (0–1) of the slider covers min→pivot; remainder covers pivot→max.
+// Example: { pivot: 1500, pivotPct: 0.85 } puts 85 % of the slider on the 0–1500 mi range.
+type Scale = 'linear' | 'sqrt' | { pivot: number; pivotPct: number }
+
 function DualRangeSlider({
   label, minVal, maxVal, min, max, step, onMin, onMax, format, scale = 'linear',
 }: {
@@ -289,7 +289,7 @@ function DualRangeSlider({
   onMin: (v: number | null) => void
   onMax: (v: number | null) => void
   format: (v: number) => string
-  scale?: 'linear' | 'sqrt'
+  scale?: Scale
 }) {
   const lo = minVal ?? min
   const hi = maxVal ?? max
@@ -305,25 +305,42 @@ function DualRangeSlider({
   }, [thumbDown])
 
   // Convert actual value → slider position 0–100
-  const toPos = (v: number) => {
-    const ratio = (max === min) ? 0 : (v - min) / (max - min)
-    return (scale === 'sqrt' ? Math.sqrt(Math.max(0, ratio)) : ratio) * 100
+  const toPos = (v: number): number => {
+    const clamped = Math.max(min, Math.min(max, v))
+    if (scale === 'linear') return ((clamped - min) / (max - min)) * 100
+    if (scale === 'sqrt') return Math.sqrt(Math.max(0, (clamped - min) / (max - min))) * 100
+    // Piecewise linear
+    const { pivot, pivotPct } = scale
+    if (clamped <= pivot) return ((clamped - min) / (pivot - min)) * pivotPct * 100
+    return (pivotPct + ((clamped - pivot) / (max - pivot)) * (1 - pivotPct)) * 100
   }
 
   // Convert slider position 0–100 → actual value, rounded to step
   const fromPos = (p: number): number => {
-    const ratio = scale === 'sqrt' ? Math.pow(p / 100, 2) : p / 100
-    const v = min + (max - min) * ratio
+    let v: number
+    if (scale === 'linear') {
+      v = min + (max - min) * (p / 100)
+    } else if (scale === 'sqrt') {
+      v = min + (max - min) * Math.pow(p / 100, 2)
+    } else {
+      // Piecewise linear
+      const { pivot, pivotPct } = scale
+      const pNorm = p / 100
+      v = pNorm <= pivotPct
+        ? min + (pivot - min) * (pNorm / pivotPct)
+        : pivot + (max - pivot) * ((pNorm - pivotPct) / (1 - pivotPct))
+    }
     return Math.max(min, Math.min(max, Math.round(v / step) * step))
   }
 
   const pctLo = toPos(lo)
   const pctHi = toPos(hi)
-  const sMin = scale === 'sqrt' ? 0 : min
-  const sMax = scale === 'sqrt' ? 100 : max
-  const sStep = scale === 'sqrt' ? 0.5 : step
-  const sLo = scale === 'sqrt' ? pctLo : lo
-  const sHi = scale === 'sqrt' ? pctHi : hi
+  const nonLinear = scale === 'sqrt' || typeof scale === 'object'
+  const sMin = nonLinear ? 0 : min
+  const sMax = nonLinear ? 100 : max
+  const sStep = nonLinear ? 0.1 : step
+  const sLo = nonLinear ? pctLo : lo
+  const sHi = nonLinear ? pctHi : hi
 
   // Z-index: the active (dragging) thumb is always on top.
   // When nothing is dragged: at max lo must be on top (hi can't go right); otherwise hi on top.
