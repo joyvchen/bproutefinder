@@ -310,9 +310,8 @@ function GridCard({ route, isSelected, onHover }: RouteCardProps) {
   // Tooltip: find the first sentence in either scraped field that contains an
   // actual tire measurement. Never fall back to bike-only content.
   const tireLabel = route.llm_tire_width_notes ?? null
-  // ideal_bike fallback is strict: only show it if it contains an actual tire measurement
   const tireTip = extractTireSentence(route.tire_width_notes)
-    ?? extractTireSentence(route.ideal_bike, true)
+    ?? extractTireSentence(route.llm_bike_tooltip)
     ?? undefined
 
   const tireMinMm = route.llm_tire_width_min_mm ?? route.tire_width_min_mm

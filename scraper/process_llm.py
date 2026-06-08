@@ -203,18 +203,7 @@ def _extract_ideal_bike(bike_text: str | None) -> tuple[str | None, str | None]:
     else:
         label_str = labels[0]
 
-    # Trim tooltip to the most relevant sentence
-    sentences = re.split(r'(?<=[.!?])\s+', bike_text.strip())
-    best = sentences[0] if sentences else bike_text.strip()
-    # Find sentence containing most bike type keywords
-    best_score = 0
-    for sent in sentences:
-        score = sum(1 for _, pat in _BIKE_PATTERNS if pat.search(sent))
-        if score > best_score:
-            best_score = score
-            best = sent
-
-    return label_str, best.strip()
+    return label_str, bike_text.strip()
 
 
 # ── Manual season overrides for routes with ambiguous or non-obvious text ──────
@@ -291,7 +280,7 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'travesia-por-atitlan-guatemala': [10, 11, 12, 1, 2, 3, 4],
     'ruta-el-dorado':                 None,  # Colombia equatorial, rainy/dry
     'paramos-conexion':               None,  # Colombia equatorial, complex
-    'oh-boyaca-colombia':             None,  # Colombia equatorial, complex
+    'oh-boyaca-colombia':             [12, 1, 2, 3, 7, 8],  # driest Dec-Mar + Jul-Aug dry season
     'el-camino-de-la-puma':           [4, 5, 6, 7, 8, 9, 10, 11, 12],  # Apr-Dec dry season
     'trans-mexico-norte':             [12, 1, 2, 3, 4],
     'trans-mexico-sur':               [11, 12, 1, 2, 3],
@@ -452,7 +441,7 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'socal-desert-ramble':            [10, 11, 12, 1, 2, 3, 4],
     'stagecoach-400-bikepacking-route': [3, 4, 10, 11],
     'el-camino-del-diablo':           [11, 12, 1, 2, 3, 4],
-    'death-valley-dustup':            None,  # text is truncated/ambiguous
+    'death-valley-dustup':            [11, 12, 1, 2, 3],  # November-March; avoid extreme summer heat
     'mojave-solitaire':               [10, 11, 12, 1, 2, 3, 4],
     'joshua-tree-dirt-roads':         [3, 4, 5, 9, 10, 11],
     'bike-touring-joshua-tree-dirt-roads': [3, 4, 5, 9, 10, 11],
@@ -635,7 +624,8 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'hawkesbury-ognr':                [4, 5, 6, 7, 8, 9, 10, 11],
     'munda-biddi-trail':              [3, 4, 5, 8, 9],
     'palmetto-trail':                 None,
-    'trans-north-georgia-tnga':       None,
+    'trans-north-georgia-tnga':       [4, 5, 9, 10],  # Spring (April/May) + Fall (September/October)
+    'maah-daah-hey':                  [4, 5, 6, 9, 10, 11],  # April-June + September-November; avoid summer heat
     'blue-ridge-wrangler':            [3, 4, 5, 6, 7, 8, 9, 10, 11],
     'overnighter-harrisonburg-va':    [3, 4, 5, 9, 10, 11],
     'canaan-valley-forks-of-cheat':   [5, 6, 7, 8, 9],
@@ -831,6 +821,65 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
 }
 
 
+# ── Manual bike overrides for routes where the scraper captured incomplete text ─
+# Key: slug, Value: (llm_ideal_bike, llm_bike_tooltip)
+BIKE_OVERRIDES: dict[str, tuple[str | None, str]] = {
+    'oh-boyaca-colombia': (
+        'Rigid or Hardtail MTB',
+        'A range of bikes would work on this route, and they\'ll all be the right bike at some point. '
+        'Rigid is fine, but a hardtail wouldn\'t be over the top. A gravel rig is okay too. '
+        'It might be a little underbiked at times, particularly if you run into some dreaded Colombian mud. '
+        'Around 2” tires or bigger are recommended. We had 2.3” on rigid bikes.',
+    ),
+    'red-feather-ramble': (
+        'Gravel Bike',
+        'While you could certainly get away with running 35s for most of the route, '
+        'I\'d recommend 48s for the extra stability they afford a loaded bike. '
+        'Any all-road bike will do, so long as it has a decent granny gear.',
+    ),
+    'basin-and-batholith': (
+        'Rigid MTB or ATB',
+        'The ideal bike would be a Rigid MTB/ATB with at least 2.4″ tires.',
+    ),
+    'bear-lake-shakedown': (
+        'MTB',
+        'Preferred bike: Anything with 2” tires or greater. '
+        'People have done it on gravel bikes with 40mm tires, but there are sections with technical descents and climbs. '
+        'Due to the grades, wide range gearing is recommended.',
+    ),
+    'meandros-en-mitla-mexico': (
+        'MTB or Gravel Bike',
+        'Best bike: You can ride this weekend tour on any mountain bike, be it rigid or with front suspension. '
+        'Whatever you choose, the route is almost completely rideable, bar the odd dismount and push. '
+        'However, take note of the trail leading down Huayapam, which has a few technical moves. '
+        'A gravel bike will be ok for most of the route, though a bike with larger volume tyres is definitely '
+        'recommended, as is low gearing for the climb up to Hierve el Agua.',
+    ),
+    'swell-night-out': (
+        'MTB',
+        'Due to significant sections of the trail containing loose rock, sand and/or occasional mud, '
+        'the route should not be attempted on anything less than a mountain bike. '
+        'The authors completed development of the route on plus bikes with 3 inch tires. '
+        'Fatbikes would be equally suitable for the entirety of this route.',
+    ),
+    'la-observer': (
+        'Hardtail MTB or Gravel Bike',
+        'A standard hardtail, rigid or otherwise, is probably about perfect for this ride. '
+        'But you\'d be fine on a gravel/adventure bike with 40mm+ tyres or so, if you take it easy on the '
+        'singletrack descent and watch out for watersnakes and loose patches '
+        '(locals love to \'underbike\' in the National Forest). Pack light and bring your low gears!',
+    ),
+    'death-valley-dustup': (
+        'Hardtail MTB',
+        'Much like the ideal season for this route, the best tire is also a bit of a goldilocks. '
+        'Less than 2.5″ will have you suffering through the sandy sections, but a fat bike is likely '
+        'overkill due to the long pavement stretches crossing the Inyos. '
+        'Though a skilled rider could manage this route on a rigid, front suspension will be much more '
+        'comfortable, especially on chunky, loose, and steep descents.',
+    ),
+}
+
+
 def process_route(r: dict) -> dict:
     slug = r['slug']
 
@@ -853,11 +902,13 @@ def process_route(r: dict) -> dict:
         t_min, t_max, t_notes = _parse_tire_widths_from_text(r['ideal_bike'])
 
     # ── Ideal bike ─────────────────────────────────────────────────────
-    bike_label, bike_tip = _extract_ideal_bike(r.get('ideal_bike'))
-
-    # Fix scraped texts that start mid-sentence (scraper captured wrong sentence boundary)
-    if bike_tip and re.match(r'^for\s+this\s+route\b', bike_tip, re.I):
-        bike_tip = 'The ideal bike ' + bike_tip
+    if slug in BIKE_OVERRIDES:
+        bike_label, bike_tip = BIKE_OVERRIDES[slug]
+    else:
+        bike_label, bike_tip = _extract_ideal_bike(r.get('ideal_bike'))
+        # Fix scraped texts that start mid-sentence (scraper captured wrong sentence boundary)
+        if bike_tip and re.match(r'^for\s+this\s+route\b', bike_tip, re.I):
+            bike_tip = 'The ideal bike ' + bike_tip
 
     return {
         'slug': slug,
