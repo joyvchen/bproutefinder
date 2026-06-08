@@ -14,6 +14,7 @@ interface MapViewProps {
   onMapReady: () => void
   flyToRoute?: Route | null
   onPinPosition?: (pos: { x: number; y: number } | null) => void
+  onRoutesRendered?: () => void
 }
 
 const SOURCE_ID = 'routes'
@@ -95,6 +96,7 @@ export default function MapView({
   onMapReady,
   flyToRoute,
   onPinPosition,
+  onRoutesRendered,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -104,6 +106,8 @@ export default function MapView({
   onRouteSelectRef.current = onRouteSelect
   const onPinPositionRef = useRef(onPinPosition)
   onPinPositionRef.current = onPinPosition
+  const onRoutesRenderedRef = useRef(onRoutesRendered)
+  onRoutesRenderedRef.current = onRoutesRendered
   const selectedRouteIdRef = useRef(selectedRouteId)
   selectedRouteIdRef.current = selectedRouteId
   const routeLinesRef = useRef<Map<string, [number, number][]>>(new Map())
@@ -251,6 +255,11 @@ export default function MapView({
     if (pointsSource) pointsSource.setData(buildPointsGeoJSON(routes, routeStartCoordsRef.current))
     const linesSource = map.getSource(LINES_SOURCE) as maplibregl.GeoJSONSource | undefined
     if (linesSource) linesSource.setData(buildLinesGeoJSON(routeLinesRef.current, activeIds))
+    // Wait for MapLibre to finish rendering the new pins — 'idle' fires after all
+    // pending source processing and draw calls are complete.
+    const handleIdle = () => onRoutesRenderedRef.current?.()
+    map.once('idle', handleIdle)
+    return () => { map.off('idle', handleIdle) }
   }, [routes, mapReady])
 
   // Load RWGPS traces progressively — skip already-cached, 5 concurrent, 150 ms between batches

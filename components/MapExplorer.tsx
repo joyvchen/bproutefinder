@@ -7,7 +7,7 @@ import { useFilters } from '@/hooks/useFilters'
 import { useRoutes, fetchAllRoutesForMap } from '@/hooks/useRoutes'
 import { useMapState } from '@/hooks/useMapState'
 import Sidebar from './Sidebar'
-import RouteCard from './RouteCard'
+import RouteCard, { RouteCardSkeleton } from './RouteCard'
 
 const MapView = dynamic(() => import('./MapView'), {
   ssr: false,
@@ -65,9 +65,19 @@ function ListViewPanel({
               layout="grid"
             />
           ))}
+          {/* Skeleton cards on initial load */}
+          {isLoading && routes.length === 0 &&
+            Array.from({ length: 6 }, (_, i) => <RouteCardSkeleton key={i} />)
+          }
         </div>
-        <div ref={sentinelRef} className="mt-8 h-10 flex items-center justify-center">
-          {isLoading && <span className="text-sm text-gray-400">Loading…</span>}
+        {/* Infinite scroll sentinel + load-more spinner */}
+        <div ref={sentinelRef} className="mt-8 h-12 flex items-center justify-center">
+          {isLoading && routes.length > 0 && (
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <div className="w-4 h-4 rounded-full border-2 border-gray-200 border-t-green-500 animate-spin" />
+              Loading more routes…
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -91,10 +101,24 @@ export default function MapExplorer() {
   const cardRef = useRef<HTMLDivElement>(null)
 
   const [mapRoutes, setMapRoutes] = useState<Route[]>([])
+  const [mapLoading, setMapLoading] = useState(true)
+  // Guard: only clear the spinner after the fetch has completed AND MapView has called setData.
+  // If mapReady fires before the fetch returns, onRoutesRendered would otherwise dismiss the
+  // spinner prematurely (map is ready but pins haven't arrived from the API yet).
+  const fetchCompletedRef = useRef(false)
   useEffect(() => {
-    fetchAllRoutesForMap(filters).then(setMapRoutes)
+    fetchCompletedRef.current = false
+    setMapLoading(true)
+    fetchAllRoutesForMap(filters).then((routes) => {
+      fetchCompletedRef.current = true
+      setMapRoutes(routes)
+    })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(filters)])
+
+  const handleRoutesRendered = useCallback(() => {
+    if (fetchCompletedRef.current) setMapLoading(false)
+  }, [])
 
   const selectedRoute = mapRoutes.find((r) => r.id === selectedRouteId)
     ?? routes.find((r) => r.id === selectedRouteId)
@@ -212,8 +236,19 @@ export default function MapExplorer() {
             onRouteSelect={selectRoute}
             onMapReady={setMapReady}
             flyToRoute={flyToRoute}
+            onRoutesRendered={handleRoutesRendered}
           />
         </div>
+
+        {/* Non-blocking map pin loading indicator */}
+        {view === 'map' && mapLoading && (
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+            <div className="flex items-center gap-2 bg-white/90 backdrop-blur-sm rounded-full px-3 py-1.5 shadow-md border border-gray-100 text-xs text-gray-600">
+              <div className="w-3 h-3 rounded-full border-2 border-gray-200 border-t-green-500 animate-spin" />
+              Loading routes…
+            </div>
+          </div>
+        )}
 
         {/* List view */}
         {view === 'list' && (

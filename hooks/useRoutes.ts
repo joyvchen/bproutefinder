@@ -25,7 +25,7 @@ export function useRoutes(filters: FilterState) {
     return buildUrl(filters, pageIndex * PAGE_SIZE)
   }
 
-  const { data, error, isLoading, size, setSize } = useSWRInfinite<RoutesResponse>(
+  const { data, error, isLoading: isInitialLoading, isValidating, size, setSize } = useSWRInfinite<RoutesResponse>(
     getKey,
     fetcher,
     { revalidateOnFocus: false, revalidateFirstPage: false }
@@ -34,6 +34,8 @@ export function useRoutes(filters: FilterState) {
   const routes: Route[] = data ? data.flatMap((page) => page.routes) : []
   const total = data?.[0]?.total ?? 0
   const hasMore = routes.length < total
+  // isLoading covers both the initial fetch (no data yet) and subsequent page loads
+  const isLoading = isInitialLoading || isValidating
 
   return {
     routes,

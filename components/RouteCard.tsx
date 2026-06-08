@@ -61,6 +61,28 @@ const SEASON_MAP: Record<string, number[]> = {
   fall: [9, 10, 11], autumn: [9, 10, 11], winter: [12, 1, 2],
 }
 
+// Pass 1: explicit unit (mm, inch, double-quote) or "tire width"/"tyre width"
+const TIRE_MEASUREMENT_RE = /\d+(?:\.\d+)?(?:\s*x\s*\d+(?:\.\d+)?)?\s*(?:mm|["""″]|inch(?:es)?(?:\b|(?=\s)))|tire\s*width|tyre\s*width/i
+// Pass 2: bare decimal tire size — "2.1 or bigger", "3.0+", "45/50mm+", "2.4+"
+const BARE_TIRE_SIZE_RE = /\b\d\.\d+\s*(?:or\s+(?:bigger|wider|larger)|\+|["""″])|\b\d{2,3}\/\d{2,3}(?:\s*mm)?\+/i
+// Pass 3: tire-characteristic keywords — knobby, fat bike, wide tires, etc.
+const TIRE_KEYWORD_RE = /\b(?:tires?|tyres?|knobby|fat\s+(?:tire|tyre|bike)|wide\s+(?:tire|tyre)|balloon|plus.?size)\b/i
+
+// Returns the first tire-relevant sentence from text.
+// strict=true → only measurement-based passes (safe for ideal_bike fallback,
+// avoids sentences that only describe the bike with no tire sizing info).
+function extractTireSentence(text: string | null | undefined, strict = false): string | null {
+  if (!text?.trim()) return null
+  const sentences = text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(s => s.length > 10)
+  for (const s of sentences) { if (TIRE_MEASUREMENT_RE.test(s)) return s }   // explicit units
+  for (const s of sentences) { if (BARE_TIRE_SIZE_RE.test(s)) return s }     // bare decimal
+  if (strict) return null  // ideal_bike fallback: stop here (skip keyword-only sentences)
+  for (const s of sentences) { if (TIRE_KEYWORD_RE.test(s)) return s }       // tire keywords
+  // Last resort: short text that mentions tires but didn't split into sentences cleanly
+  if (/\btires?\b|\btyres?\b/i.test(text) && text.length <= 200) return text.trim()
+  return null
+}
+
 function parseSeasonMonths(text: string | null): number[] {
   if (!text) return []
   const lower = text.toLowerCase()
@@ -280,14 +302,25 @@ function MonthRow({ months }: { months: number[] }) {
 function GridCard({ route, isSelected, onHover }: RouteCardProps) {
   const bikeTypeDisplay = route.bike_type?.length
     ? route.bike_type.map((t) => BIKE_TYPE_DISPLAY[t] ?? t.replace(/-/g, ' ')).join(', ')
-    : bikeTypeFromIdealBike(route.ideal_bike)
+    : (route.llm_ideal_bike ?? bikeTypeFromIdealBike(route.ideal_bike))
 
-  const bikeTip = route.ideal_bike?.trim() ? `Best Bike: ${route.ideal_bike.trim()}` : undefined
-  const tireTip = route.tire_width_notes ?? undefined
+  const bikeTip = route.llm_bike_tooltip?.trim()
+    ?? (route.ideal_bike?.trim() ? `Best Bike: ${route.ideal_bike.trim()}` : undefined)
+  // llm_tire_width_notes is the concise display label (e.g. "2.35"", "45mm–2.4"")
+  // Tooltip: find the first sentence in either scraped field that contains an
+  // actual tire measurement. Never fall back to bike-only content.
+  const tireLabel = route.llm_tire_width_notes ?? null
+  // ideal_bike fallback is strict: only show it if it contains an actual tire measurement
+  const tireTip = extractTireSentence(route.tire_width_notes)
+    ?? extractTireSentence(route.ideal_bike, true)
+    ?? undefined
 
-  // Prefer DB-populated months; fall back to parsing best_season text
-  const seasonMonths = (route.best_season_months?.length ?? 0) > 0
-    ? route.best_season_months!
+  const tireMinMm = route.llm_tire_width_min_mm ?? route.tire_width_min_mm
+  const tireMaxMm = route.llm_tire_width_max_mm ?? route.tire_width_max_mm
+
+  // LLM months > scraped months > parse best_season text
+  const seasonMonths = (route.llm_best_season_months?.length ?? 0) > 0
+    ? route.llm_best_season_months!
     : parseSeasonMonths(route.best_season)
 
   return (
@@ -356,7 +389,7 @@ function GridCard({ route, isSelected, onHover }: RouteCardProps) {
             <StatCell
               icon={<IconTire />}
               label="Tires"
-              value={route.tire_width_min_mm != null ? formatTireWidth(route.tire_width_min_mm, route.tire_width_max_mm) : '—'}
+              value={tireLabel ?? (tireMinMm != null ? formatTireWidth(tireMinMm, tireMaxMm) : '—')}
               tooltip={tireTip}
             />
           </div>

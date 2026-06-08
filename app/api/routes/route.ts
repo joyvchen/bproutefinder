@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
   if (singleMax != null) query = query.lte('singletrack_pct', singleMax)
   if (tireMin != null) query = query.gte('tire_width_max_mm', tireMin)
   if (tireMax != null) query = query.lte('tire_width_min_mm', tireMax)
-  if (months.length) query = query.overlaps('best_season_months', months)
+  if (months.length) query = query.overlaps('llm_best_season_months', months)
   if (topPickOnly) query = query.eq('is_top_pick', true)
 
   // Sorting

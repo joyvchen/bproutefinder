@@ -40,6 +40,13 @@ export interface Route {
   best_season_months: number[] | null
   ideal_bike: string | null
 
+  llm_best_season_months: number[] | null
+  llm_ideal_bike: string | null
+  llm_bike_tooltip: string | null
+  llm_tire_width_min_mm: number | null
+  llm_tire_width_max_mm: number | null
+  llm_tire_width_notes: string | null
+
   rwgps_route_id: string | null
   rwgps_embed_url: string | null
 
