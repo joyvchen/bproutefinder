@@ -259,7 +259,7 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'ruta-toro-toro-bolivia':         [6, 7, 8, 9, 10],  # Bolivian winter
     'cones-canyons-peru-divide':      [4, 5, 6, 7, 8, 9],
     'peru-great-divide':              [4, 5, 6, 7, 8, 9],
-    'mama-coca':                      None,  # text truncated, unclear
+    'mama-coca':                      [6, 7, 8, 9],  # high Andean: dry season Jun-Sep (text confirms "outside dry season = snow-covered")
     'carolina-sandhills-overnighter': [10, 11, 12, 1, 2, 3, 4, 5],
     'cappadocia-delight':             [4, 5, 9, 10],
     'caucasus-crossing-armenia':      [6, 7, 9, 10],
@@ -278,7 +278,7 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'trans-salvador':                 [11, 12, 1, 2, 3, 4],
     'trans-cuba':                     [12, 1, 2, 3, 4, 5],
     'travesia-por-atitlan-guatemala': [10, 11, 12, 1, 2, 3, 4],
-    'ruta-el-dorado':                 None,  # Colombia equatorial, rainy/dry
+    'ruta-el-dorado':                 [1, 2, 3, 7, 8],  # Colombia: dry seasons Jan-Mar + Jul-Aug per text
     'paramos-conexion':               None,  # Colombia equatorial, complex
     'oh-boyaca-colombia':             [12, 1, 2, 3, 7, 8],  # driest Dec-Mar + Jul-Aug dry season
     'el-camino-de-la-puma':           [4, 5, 6, 7, 8, 9, 10, 11, 12],  # Apr-Dec dry season
@@ -357,7 +357,7 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'asiago-loop':                    [5, 6, 7, 8, 9, 10],
     'gorgany-trail-ukraine':          [6, 7, 8, 9, 10],
     'polonina-borzhava-ukraine':      None,
-    'holyland-challenge-israel':      None,
+    'holyland-challenge-israel':      [3, 4, 5, 10, 11],  # Israel: spring + fall; scraped text was about camping, not season
     'bikepacking-cyprus-crossing':    [4, 5, 6, 7, 8, 9, 10],
     'kyrenia-traverse':               [4, 5, 6, 9, 10, 11],
     'cappadocia-delight':             [4, 5, 9, 10],
@@ -410,7 +410,7 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'jura-traverse':                  [6, 7, 8, 9],
     'havel-wetland-wander':           None,
     'rambouillet-forest-overnighter': [6, 7, 8],
-    'ardennes-arbalete':              None,
+    'ardennes-arbalete':              [4, 5, 6, 7, 8, 9, 10],  # Belgian Ardennes: spring through fall; best_season field was null
     'ardeche-cevennes-divide':        [4, 5, 6, 7, 8, 9, 10, 11],
     'bikepacking-the-white-rim':      None,
     # Grassy season picker gets wrong months from negative mentions
@@ -601,7 +601,7 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'old-stone-house-loop':           [6, 7, 8, 9, 10],
     'bear-lake-shakedown':            [6, 7, 8, 9, 10],
     'ridges-rivers-and-rails-overnighter': [6, 7, 8, 9, 10],
-    'great-san-diego-triathlon':      None,
+    'great-san-diego-triathlon':      [10, 11, 12, 1, 2, 3, 4],  # San Diego: fall through spring; scraped text was storm warning
     'drakes-passage':                 None,
     'drake-passage':                  [8, 9, 10, 11],
     'fools-loop-arizona':             [10, 11, 12, 1, 2, 3, 4],
@@ -818,6 +818,20 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'two-gorges-gravel-s24o':         None,
     'baldy-bruiser':                  None,
     'echo-titus-circuit':             [11, 12, 1, 2, 3],
+    # ── Parser failures: wrong text scraped or negation/range bugs ────────────
+    'tcbr-norte':                     [11, 12, 1, 2, 3],   # SH summer (like tcbr-sur); text says "OUTSIDE April-May" — parser returned [4,5]
+    'lagunas-y-salares':              [5, 6, 7, 8, 9, 10], # Altiplano dry season May-Oct; parser stripped May via aux-verb bug
+    'morocco-traverse-south':         [2, 3, 4, 10, 11],   # "late Feb/Mar/Apr OR fall"; parser got [2,3,4] only
+    'la-transgaspesie':               [6, 7, 8, 9],        # "late June...mid-September"; range gap too wide for parser
+    'aspen-loop-overnighter':         [6, 7, 8, 9, 10],    # "Early summer through fall"; parser locked onto [9,10] leaf-peeper mention
+    # ── Wrong text scraped — parser extracted date/event, not season ─────────
+    'hold-onto-the-cats-tail':        [4, 5, 9, 10],       # Black Rock/High Rock NV: spring + fall; scraped text was a ride date
+    'new-mexico-off-road-runner':     None,                 # scraped text was publication history; no valid season info
+    # ── Under-extracted: parser got too few months ───────────────────────────
+    'henry-coe-trial-fire-overnighter': [11, 12, 1, 2, 3, 4],  # "winter and spring most enjoyable" (Henry Coe CA); parser got [4] only
+    'lincoln-national-forest-nm':     [2, 3, 4, 5],        # "late winter/spring escape" (Lincoln NF, NM); parser got [2] only
+    'kootenay-confluence':            [6, 7, 8, 9],        # BC summer; parser got [6,7] (text truncated before "Summer is your best")
+    'chilangos-tres-picos-overnighter': [3, 4, 5, 10, 11], # "Oct-Nov best; spring also good" — parser missed spring
 }
 
 

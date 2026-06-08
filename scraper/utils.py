@@ -352,7 +352,9 @@ _MAY_AUX_RE = re.compile(
 )
 # Detect 'may' used as a month name (adjacent to date context)
 _MAY_DATE_RE = re.compile(
-    r'\bmay\s*[-–,]|\bmay\s+\d+\b|\b(?:in|from|through|until|thru|of)\s+may\b',
+    r'\bmay\s*[-–,]|\bmay\s+\d+\b|\b(?:in|from|through|until|thru|of)\s+may\b'
+    r'|\bmonths?\s+may\b'                         # "months May to October"
+    r'|\bmay\s+(?:through|thru|to|until|till)\s+',  # "May to October", "May through September"
     re.IGNORECASE,
 )
 
