@@ -821,9 +821,17 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
 }
 
 
+# ── Manual tire overrides for routes where auto-extraction fails ───────────────
+# Key: slug, Value: (min_mm, max_mm, display_label)
+TIRE_OVERRIDES: dict[str, tuple[int | None, int | None, str | None]] = {
+    'red-feather-ramble': (35, 48, '48mm'),     # "running 35s... recommend 48s"
+    'norcal-outback':     (45, 50, '45–50c'),   # 45/50c drop bar optimal (c = French road size)
+}
+
+
 # ── Manual bike overrides for routes where the scraper captured incomplete text ─
 # Key: slug, Value: (llm_ideal_bike, llm_bike_tooltip)
-BIKE_OVERRIDES: dict[str, tuple[str | None, str]] = {
+BIKE_OVERRIDES: dict[str, tuple[str | None, str | None]] = {
     'oh-boyaca-colombia': (
         'Rigid or Hardtail MTB',
         'A range of bikes would work on this route, and they\'ll all be the right bike at some point. '
@@ -877,6 +885,16 @@ BIKE_OVERRIDES: dict[str, tuple[str | None, str]] = {
         'Though a skilled rider could manage this route on a rigid, front suspension will be much more '
         'comfortable, especially on chunky, loose, and steep descents.',
     ),
+    'zillertal-trail': (
+        'Hardtail MTB or Gravel Bike',
+        'The loop can also be done on a hardtail, rigid travel bike, or gravel bike, though you\'ll '
+        'experience more bumps, less comfort, and—depending on your bike and luggage—more weight to '
+        'carry on the hike-a-bike sections.',
+    ),
+    'kenya-bike-odyssey': (
+        'MTB',
+        'A mountain bike with 2.2"–2.4" tires is recommended for this route.',
+    ),
 }
 
 
@@ -901,14 +919,23 @@ def process_route(r: dict) -> dict:
     if t_min is None and r.get('ideal_bike'):
         t_min, t_max, t_notes = _parse_tire_widths_from_text(r['ideal_bike'])
 
+    # Apply manual tire overrides
+    if slug in TIRE_OVERRIDES:
+        t_min, t_max, t_notes = TIRE_OVERRIDES[slug]
+
     # ── Ideal bike ─────────────────────────────────────────────────────
     if slug in BIKE_OVERRIDES:
         bike_label, bike_tip = BIKE_OVERRIDES[slug]
     else:
         bike_label, bike_tip = _extract_ideal_bike(r.get('ideal_bike'))
         # Fix scraped texts that start mid-sentence (scraper captured wrong sentence boundary)
-        if bike_tip and re.match(r'^for\s+this\s+route\b', bike_tip, re.I):
-            bike_tip = 'The ideal bike ' + bike_tip
+        if bike_tip:
+            if re.match(r'^for\s+this\s+route\b', bike_tip, re.I):
+                bike_tip = 'The ideal bike ' + bike_tip
+            elif re.match(r'^to\s+[a-z]', bike_tip):
+                bike_tip = 'The ideal bike ' + bike_tip
+            elif re.match(r'^would\s+be\b', bike_tip, re.I):
+                bike_tip = 'The ideal bike ' + bike_tip
 
     return {
         'slug': slug,

@@ -61,10 +61,10 @@ const SEASON_MAP: Record<string, number[]> = {
   fall: [9, 10, 11], autumn: [9, 10, 11], winter: [12, 1, 2],
 }
 
-// Pass 1: explicit unit (mm, inch, double-quote) or "tire width"/"tyre width"
-const TIRE_MEASUREMENT_RE = /\d+(?:\.\d+)?(?:\s*x\s*\d+(?:\.\d+)?)?\s*(?:mm|["""″]|inch(?:es)?(?:\b|(?=\s)))|tire\s*width|tyre\s*width/i
-// Pass 2: bare decimal tire size — "2.1 or bigger", "3.0+", "45/50mm+", "2.4+"
-const BARE_TIRE_SIZE_RE = /\b\d\.\d+\s*(?:or\s+(?:bigger|wider|larger)|\+|["""″])|\b\d{2,3}\/\d{2,3}(?:\s*mm)?\+/i
+// Pass 1: explicit unit (mm, inch, double-quote, French "c" suffix) or "tire width"/"tyre width"
+const TIRE_MEASUREMENT_RE = /\d+(?:\.\d+)?(?:\s*x\s*\d+(?:\.\d+)?)?\s*(?:mm|["""″]|inch(?:es)?(?:\b|(?=\s)))|\b\d{2,3}c\b|tire\s*width|tyre\s*width/i
+// Pass 2: bare decimal tire size — "2.1 or bigger", "3.0+", "45/50mm+", "2.4+"; bare integer+s — "35s", "48s"
+const BARE_TIRE_SIZE_RE = /\b\d\.\d+\s*(?:or\s+(?:bigger|wider|larger)|\+|["""″])|\b\d{2,3}\/\d{2,3}(?:\s*mm)?\+|\b[3-9]\d[sS]\b/i
 // Pass 3: tire-characteristic keywords — knobby, fat bike, wide tires, etc.
 const TIRE_KEYWORD_RE = /\b(?:tires?|tyres?|knobby|fat\s+(?:tire|tyre|bike)|wide\s+(?:tire|tyre)|balloon|plus.?size)\b/i
 
