@@ -670,7 +670,7 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'monumental-loop':                [3, 4, 5, 9, 10, 11],       # Utah canyon country
     'lost-canyon-overnighter':        [3, 4, 5, 9, 10, 11],       # SW US canyon country
     'cattle-calls-and-canyon-walls':  [3, 4, 5, 9, 10, 11],       # canyon country
-    'echo-titus-circuit':             [5, 6, 7, 8, 9, 10],        # likely CO mountains
+    'echo-titus-circuit':             [11, 12, 1, 2, 3],        # likely CO mountains
     'secret-mesa-loop':               [5, 6, 7, 8, 9, 10],        # likely CO high country
     # US — Southeast/Gulf (avoid humid summer peaks, frost winters)
     'huracan-300-bikepacking-route':  [10, 11, 12, 1, 2, 3, 4],  # Florida
@@ -817,7 +817,7 @@ SEASON_OVERRIDES: dict[str, list[int] | None] = {
     'tilton-traverse':                None,
     'two-gorges-gravel-s24o':         None,
     'baldy-bruiser':                  None,
-    'echo-titus-circuit':             [5, 6, 7, 8, 9, 10],
+    'echo-titus-circuit':             [11, 12, 1, 2, 3],
 }
 
 

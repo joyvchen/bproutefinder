@@ -68,14 +68,16 @@ const BARE_TIRE_SIZE_RE = /\b\d\.\d+\s*(?:or\s+(?:bigger|wider|larger)|\+|["""�
 // Pass 3: tire-characteristic keywords — knobby, fat bike, wide tires, etc.
 const TIRE_KEYWORD_RE = /\b(?:tires?|tyres?|knobby|fat\s+(?:tire|tyre|bike)|wide\s+(?:tire|tyre)|balloon|plus.?size)\b/i
 
-// Returns the first tire-relevant sentence from text.
-// strict=true → only measurement-based passes (safe for ideal_bike fallback,
-// avoids sentences that only describe the bike with no tire sizing info).
+// Returns tire-relevant sentence(s) from text.
+// Pass 1 collects ALL sentences with explicit measurements and joins them (handles multi-sentence specs).
+// strict=true → only measurement-based passes (safe for ideal_bike fallback).
 function extractTireSentence(text: string | null | undefined, strict = false): string | null {
   if (!text?.trim()) return null
   const sentences = text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(s => s.length > 10)
-  for (const s of sentences) { if (TIRE_MEASUREMENT_RE.test(s)) return s }   // explicit units
-  for (const s of sentences) { if (BARE_TIRE_SIZE_RE.test(s)) return s }     // bare decimal
+  // Pass 1: collect ALL sentences with explicit tire measurements and join them
+  const measured = sentences.filter(s => TIRE_MEASUREMENT_RE.test(s))
+  if (measured.length > 0) return measured.join(' ')
+  for (const s of sentences) { if (BARE_TIRE_SIZE_RE.test(s)) return s }     // bare decimal / Xs notation
   if (strict) return null  // ideal_bike fallback: stop here (skip keyword-only sentences)
   for (const s of sentences) { if (TIRE_KEYWORD_RE.test(s)) return s }       // tire keywords
   // Last resort: short text that mentions tires but didn't split into sentences cleanly
