@@ -4,6 +4,8 @@ scraper/venv/
 scraper/__pycache__/
 scraper/*.pyc
 scraper/.geocode_cache.json
+scraper/llm_input.json
+scraper/llm_output.json
 
 # Next.js
 .next/
